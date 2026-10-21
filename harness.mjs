@@ -1,18 +1,28 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, lstatSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
 export const ADAPTER_VERSION = 3;
 export function harnessCatalog(settings) {
-  return [{ id: 'mpucporter', name: 'MPUCPorter', type: 'scale', path: settings.scaleAgentPath || '' }, ...(settings.harnesses || [])];
+  return settings.harnesses || [];
+}
+// Consume the legacy field once so deleted entries cannot return on restart.
+export function migrateHarnessSettings(settings) {
+  settings.harnesses ??= [];
+  if (!Object.hasOwn(settings, 'scaleAgentPath')) return false;
+  if (settings.scaleAgentPath && !settings.harnesses.some(h => h.id === 'mpucporter')) {
+    settings.harnesses.unshift({ id: 'mpucporter', name: 'MPUCPorter', type: 'scale', path: settings.scaleAgentPath });
+  }
+  delete settings.scaleAgentPath;
+  return true;
 }
 export function inspectConfiguredHarness(config, appRoot) {
   if (!config) problem('Harness 已删除，请选择其他 Harness 或新建对话');
-  const info = config.type === 'scale' ? inspectHarness(config.path, appRoot) : inspectGenericHarness(config.path, appRoot);
+  const info = config.type === 'scale' ? inspectHarness(config.path, appRoot) : inspectGenericHarness(config.path, appRoot, config.type);
   return { ...info, id: config.id, name: config.name, type: config.type };
 }
-function inspectGenericHarness(input, appRoot) {
+function inspectGenericHarness(input, appRoot, type = 'generic') {
   if (typeof input !== 'string' || !input.trim()) problem('请先填写 Harness 路径');
   let sourceRoot;
   try {
@@ -22,7 +32,19 @@ function inspectGenericHarness(input, appRoot) {
   const entry = path.join(sourceRoot, 'AGENTS.md');
   if (!existsSync(entry) || !statSync(entry).isFile()) problem('Harness 根目录需包含 AGENTS.md');
   if (statSync(entry).size === 0) problem('AGENTS.md 不能为空');
-  const files = filesIn(sourceRoot);
+  // Forge is an engineering workspace: snapshot reusable resources, not its projects.
+  const forgeEntries = ['AGENTS.md', 'README.md', 'skills', 'agents', 'knowledge', 'tools', 'workflows', 'docs'];
+  if (type === 'forge') {
+    for (const entry of ['skills/catalog.json', 'knowledge/README.md', 'tools/common.py', 'workflows/README.md']) {
+      if (!existsSync(path.join(sourceRoot, entry))) problem(`不是完整的 Forge Harness，缺少 ${entry}`);
+    }
+  }
+  const files = type === 'forge' ? forgeEntries.flatMap(entry => {
+    const location = path.join(sourceRoot, entry);
+    if (!existsSync(location)) return [];
+    if (lstatSync(location).isSymbolicLink()) problem(`Harness 资源包含符号链接：${location}`);
+    return statSync(location).isDirectory() ? filesIn(location, sourceRoot) : [{ relative: entry, bytes: readFileSync(location) }];
+  }) : filesIn(sourceRoot);
   const digest = createHash('sha256');
   for (const file of files) { digest.update(file.relative); digest.update('\0'); digest.update(String(file.bytes.length)); digest.update('\0'); digest.update(file.bytes); }
   const skills = files.filter(f => /^skills\/(?:[^/]+\/)*SKILL\.md$/.test(f.relative)).map(f => path.posix.dirname(f.relative));
@@ -82,7 +104,7 @@ function absoluteLinks(text, originalDir) {
   });
 }
 export function prepareHarness({ info, dataDir, project, chat }) {
-  if (info.type === 'generic') return prepareGenericHarness({ info, dataDir, project, chat });
+  if (['generic', 'forge'].includes(info.type)) return prepareGenericHarness({ info, dataDir, project, chat });
   const memoryRoot = path.join(dataDir, 'harness-memory', project.id);
   const memoryProject = path.join(memoryRoot, 'projects', project.id);
   const binding = createHash('sha256').update(JSON.stringify([info.sourceRoot, project.path, project.id, info.id, info.name])).digest('hex').slice(0, 16);
@@ -142,7 +164,8 @@ function prepareGenericHarness({ info, dataDir, project, chat }) {
   const binding = createHash('sha256').update(JSON.stringify([info.id, info.name, info.sourceRoot, project.id, project.path])).digest('hex').slice(0, 16);
   const pluginDir = path.join(dataDir, 'harness-adapters', `generic-${info.fingerprint.slice(0, 24)}-${binding}-v${ADAPTER_VERSION}`);
   const sourceCopy = path.join(pluginDir, 'source');
-  const bridge = `# ${info.name} / MaPU Omni 运行适配\n实际工程目录：${project.path}\nHarness 原目录：${info.sourceRoot}\n只读资源快照：${sourceCopy}\n每轮任务开始先读取快照中的 AGENTS.md，并按需读取相关资源。执行任务的 cwd 始终为实际工程目录；Harness 中的相对资源路径以快照根目录为准。不得改写 Harness 源目录或快照。用户指令、更高优先级约束及实际工程规则仍适用。工具权限及 Ask / Plan 只读模式继续受 CLI 设置控制。\n`;
+  let bridge = `# ${info.name} / MaPU Omni 运行适配\n实际工程目录：${project.path}\nHarness 原目录：${info.sourceRoot}\n只读资源快照：${sourceCopy}\n每轮任务开始先读取快照中的 AGENTS.md，并按需读取相关资源。执行任务的 cwd 始终为实际工程目录；Harness 中的相对资源路径以快照根目录为准。不得改写 Harness 源目录或快照。用户指令、更高优先级约束及实际工程规则仍适用。工具权限及 Ask / Plan 只读模式继续受 CLI 设置控制。\n`;
+  if (info.type === 'forge') bridge += `\nForge 路径与状态适配（优先于下方原始规则）：skills/、knowledge/、workflows/、docs/ 和只读检索工具位于资源快照。state/、source/、target/、intermediate/、evals/、logs/、memory/、tmp/ 属于实际工程 ${project.path}，不得读取 Harness 原仓库的项目状态作为本工程事实。先检查实际工程 state/project_manifest.json；缺失时说明工程尚未初始化，先与用户确定 migration/native 工作流，不得借用原仓库的 manifest 或计划。tools/common.py 等工具以脚本位置推导工程根目录，快照中的工具只能执行只读知识检索；更新状态、初始化、验收和写证据必须使用实际工程中已部署且根目录正确的 Forge 工具，缺失时明确说明，不能向快照写入或假称完成。knowledge/project/ 仅作为原仓库参考，不代表当前工程证据。\n`;
   if (!existsSync(path.join(pluginDir, '.cursor-plugin/plugin.json'))) {
     const staging = `${pluginDir}.tmp-${chat.id}`;
     rmSync(staging, { recursive: true, force: true });

@@ -25,6 +25,8 @@ test('project, CLI execution, model, resume, cancellation, persistence and origi
  await start();
  t.after(async()=>{server.kill('SIGTERM');await once(server,'exit');rmSync(dataDir,{recursive:true,force:true});});
  const initial=(await request('state')).body;
+ assert.deepEqual(initial.settings.harnesses,[]);
+ assert.equal(Object.hasOwn(initial.settings,'scaleAgentPath'),false);
  assert.equal((await request('cli')).body.models[1].id,'test-model');
  assert.equal((await request('projects',{path:'/nonexistent-maputest'})).status,400);
  const project=(await request('projects',{path:os.tmpdir(),name:'Integration'})).body;

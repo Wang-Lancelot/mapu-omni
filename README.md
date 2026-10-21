@@ -47,14 +47,15 @@ npm test
 在「设置 → Harness」点击「＋ 添加 Harness」，填写名称、类型和本地目录，再点击「保存设置」。支持任意数量；配置随设置保存，刷新或重启后保留。未填写目录的条目可保存，但不能用于新对话。取消或关闭设置会放弃本次修改。
 
 - **通用 · AGENTS.md**：适合自定义工作流。使用专用目录，根目录必须包含非空 `AGENTS.md`；可附带 `skills/**/SKILL.md`、`agents/*.md` 和文档、脚本等资源。Skills 和角色需包含 frontmatter。资源被复制到版本快照，入口规则和 Skills、角色通过 Cursor 插件加载，执行目录仍为当前项目。不会自动把 Codex、Claude 等其他宿主专用工具转换成 Cursor 工具。
-- **Scale · scale-agent**：使用现有 Scale 适配器，目录要求与 MPUCPorter 一致。
-- 「检测 Harness」检查当前条目的目录与资源；搜索按名称筛选。自定义条目可删除，点击保存后生效；磁盘上的源文件和已有聊天记录会保留。原有 MPUCPorter 仍可通过清空路径停用。
+- **Scale · Multi-Lang**：使用现有 Scale 适配器，目录要求与 MPUCPorter 一致。
+- **Scale · Forge**：适用于 `scale_forge`（例如命名为 MPUCOpt）。仅快照根规则、Skills、知识、工具、工作流与文档，不复制原工程的源码、目标代码、状态和运行产物。当前工程需具备自己的 Forge 状态和写入工具；缺少 `state/project_manifest.json` 时应先确定工作流并初始化，不能继承原仓库的项目进度。快照工具只用于只读知识检索，写状态与验收必须使用当前工程部署的工具。
+- 「检测 Harness」检查当前条目的目录与资源；搜索按名称筛选。所有条目（包括 MPUCPorter）均可修改名称、类型和路径，也可删除，点击保存后生效；磁盘上的源文件和已有聊天记录会保留。系统不保留内置 Harness，列表可以为空。旧版 MPUCPorter 配置会一次性迁移为普通条目，删除后重启不会重新出现。
 - 已有对话绑定原 Harness。删除条目后需选择其他 Harness 开始新对话；修改类型、路径或资源后不能继续复用旧会话。切换 Harness 会保留输入草稿并开启新对话。
 - 通用快照不包含 `.git`、`node_modules`、`.data`、Python 环境、构建目录或缓存，不支持符号链接。不要将整个工程或个人主目录作为 Harness 目录。
 
 ## MPUCPorter Harness
 
-任意工作空间都可以在输入框底部选择 **无 / MPUCPorter**。MPUCPorter 对应外部 `scale_agent` 仓库；在设置里填写根目录（包含 `AGENTS.md` 和 `scale-agent/`），支持相对 MaPU Omni 根目录的路径，例如 `../scale_agent`，也支持绝对路径和 `~/…`。点击「检测 Harness」检查必需资源，保存后生效。相邻的 `../scale_agent` 存在时首次自动预填路径；留空可停用。
+添加 MPUCPorter 后，任意工作空间都可以在输入框底部选择 **无 / MPUCPorter**。MPUCPorter 对应外部 `scale_agent` 仓库；在设置里填写根目录（包含 `AGENTS.md` 和 `scale-agent/`），支持相对 MaPU Omni 根目录的路径，例如 `../scale_agent`，也支持绝对路径和 `~/…`。点击「检测 Harness」检查必需资源，保存后生效。新安装不自动添加 Harness；可手动添加，类型选择 **Scale · Multi-Lang**，留空路径可停用。
 
 - **无**：使用原有 CLI 流程，不传入 MPUCPorter 的插件和附加目录，也不注入其运行配置。
 - **MPUCPorter**：Cursor 的 cwd 始终是当前真实项目目录。通过 `--plugin-dir` 加载 Cursor 原生插件，注册六个 Skills、根规则与两个审核角色；`--add-dir` 提供 Harness、快照和记忆目录访问。

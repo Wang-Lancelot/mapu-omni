@@ -13,6 +13,7 @@ test('deleting from either sidebar list updates both and ignores older snapshots
       addEventListener(type, handler) { this[type] = handler; },
       setAttribute() {},
       querySelector(selector) { return node(selector); },
+      close() {},
     });
     return nodes.get(selector);
   }
@@ -22,11 +23,12 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   let snapshot = {
     revision: 1, projects: [{id:'p', name:'Project', path:'/tmp'}],
     chats: ['a','b'].map((id,i) => ({id,projectId:'p',title:`Conversation ${id}`,status:'idle',messages:[],logs:[],createdAt:`2026-10-2${i}`})),
-    settings: {model:'auto',mode:'agent',fontSize:14,scaleAgentPath:'/test/harness'},
+    settings: {model:'auto',mode:'agent',fontSize:14,harnesses:[{id:'mpucporter',name:'MPUCPorter',type:'scale',path:'/test/harness'}]},
   };
   const original = structuredClone(snapshot);
   const requests = [];
-  const fetch = async route => {
+  const fetch = async (route, options) => {
+    if (route === '/api/settings') snapshot={...snapshot,revision:snapshot.revision+1,settings:JSON.parse(options.body)};
     requests.push(route);
     if (route.endsWith('/delete')) {
       const id = route.split('/')[3];
@@ -39,7 +41,7 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   class EventSource { constructor() { stream = this; } }
   const run = new (Object.getPrototypeOf(async function(){}).constructor)(
     'document','localStorage','fetch','EventSource','window','setTimeout','clearTimeout',
-    readFileSync(new URL('../public/app.js', import.meta.url), 'utf8') + '\nreturn {selectChat};'
+    readFileSync(new URL('../public/app.js', import.meta.url), 'utf8') + '\nreturn {selectChat, showHarnesses: () => {harnessDrafts=catalog().map(h=>({...h}));renderHarnessCards();}};'
   );
   const ui = await run(document,localStorage,fetch,EventSource,{confirm:()=>true,innerWidth:1280,addEventListener(){}},()=>0,()=>{});
   assert.match(node('#projects').innerHTML,/Conversation a/);
@@ -69,4 +71,16 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   for (const selector of ['#projects','#chats']) assert.doesNotMatch(node(selector).innerHTML,/Conversation [ab]/);
   assert.equal(node('#chat-count').textContent,0);
   assert.equal(requests.filter(r => r === '/api/state').length,1,'deletion does not depend on a follow-up fetch');
+  ui.showHarnesses();
+  assert.match(node('#harness-catalog').innerHTML,/data-harness-field="name"/);
+  assert.match(node('#harness-catalog').innerHTML,/data-remove-harness="mpucporter"/);
+  assert.doesNotMatch(node('#harness-catalog').innerHTML,/内置 Harness/);
+  await node('#harness-catalog').click({target:{closest:s=>s==='[data-remove-harness]'?{dataset:{removeHarness:'mpucporter'}}:null}});
+  assert.equal(node('#harness-catalog').innerHTML,'');
+  const values={backend:'cursor',customModel:'',model:'auto',mode:'agent',fontSize:'14',userName:'User'};
+  const elements=Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value}]));elements.force={checked:false};
+  await node('#settings-form').onsubmit({preventDefault(){},target:{elements}});
+  assert.deepEqual(snapshot.settings.harnesses,[]);
+  assert.equal(Object.hasOwn(snapshot.settings,'scaleAgentPath'),false);
+  assert.equal(node('#harness').innerHTML,'<option value="none">无</option>');
 });

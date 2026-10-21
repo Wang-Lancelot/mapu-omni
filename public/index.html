@@ -8,7 +8,7 @@
   <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></symbol></defs></svg>
 <aside class="sidebar" id="sidebar">
   <div id="sidebar-resizer" role="separator" tabindex="0" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-controls="sidebar" title="拖动调整宽度，双击恢复默认；方向键也可调整"></div>
-  <a class="brand" href="/" aria-label="MaPU Omni · 码炉 首页"><span>MaPU <b>Omni</b><small>码炉 · MPUC 编程助手</small></span></a>
+  <a class="brand" href="/" aria-label="MaPU Omni · 码炉 首页"><span>MaPU <b>Omni</b><small>码炉 · MaPU Scale 编程助手</small></span></a>
   <button class="new-chat" id="new-chat"><span>＋</span> 新建对话 <kbd>⌘ K</kbd></button>
   <div class="sidebar-lists">
   <div class="section-label">工作空间 <button id="add-project" title="添加项目" aria-label="添加项目">＋</button></div>
@@ -23,7 +23,7 @@
   <div class="workspace">
     <section class="conversation">
       <div id="messages" class="messages"></div>
-      <div class="compose-area"><div class="connection-notice" id="connection-notice" hidden></div><div id="harness-note" class="harness-note" hidden></div><form id="composer"><textarea id="prompt" placeholder="描述你想完成的任务…" rows="3" aria-label="输入 prompt"></textarea><div class="composer-bottom"><div class="composer-options"><span class="context-chip"><svg class="workspace-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg> <span id="composer-project">当前项目</span></span><button type="button" id="model-button" title="选择模型">◈ <span id="model-label">Auto</span>⌄</button><label class="harness-picker">Harness <select id="harness" aria-label="Harness"><option value="none">无</option><option value="mpucporter">MPUCPorter</option></select></label><select id="mode" aria-label="执行模式"><option value="agent">Agent</option><option value="ask">Ask · 只读</option><option value="plan">Plan · 规划</option></select></div><button id="send" type="submit" aria-label="发送 prompt">↑</button></div></form><div class="composer-footnote"><span><i></i> 在项目目录中通过真实 Cursor CLI 执行</span><span>Enter 发送 · Shift Enter 换行</span></div></div>
+      <div class="compose-area"><div class="connection-notice" id="connection-notice" hidden></div><div id="harness-note" class="harness-note" hidden></div><form id="composer"><textarea id="prompt" placeholder="描述你想完成的任务…" rows="3" aria-label="输入 prompt"></textarea><div class="composer-bottom"><div class="composer-options"><span class="context-chip"><svg class="workspace-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg> <span id="composer-project">当前项目</span></span><button type="button" id="model-button" title="选择模型">◈ <span id="model-label">Auto</span>⌄</button><label class="harness-picker">Harness <select id="harness" aria-label="Harness"><option value="none">无</option></select></label><select id="mode" aria-label="执行模式"><option value="agent">Agent</option><option value="ask">Ask · 只读</option><option value="plan">Plan · 规划</option></select></div><button id="send" type="submit" aria-label="发送 prompt">↑</button></div></form><div class="composer-footnote"><span><i></i> 在项目目录中通过真实 Cursor CLI 执行</span><span>Enter 发送 · Shift Enter 换行</span></div></div>
     </section>
     <aside id="terminal" class="terminal" hidden><div class="terminal-heading"><span><i></i> 执行终端</span><button id="terminal-close" aria-label="关闭终端">×</button></div><div class="terminal-meta" id="terminal-meta">等待任务</div><pre id="terminal-output">发送一条消息后，真实的 CLI 命令、输出和退出状态将在这里显示。</pre><div class="terminal-footer">● 本地进程 <span>stdout / stderr</span></div></aside>
   </div>

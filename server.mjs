@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { ADAPTER_VERSION, harnessCatalog, inspectConfiguredHarness, inspectHarness, publicHarness, prepareHarness } from './harness.mjs';
+import { ADAPTER_VERSION, harnessCatalog, inspectConfiguredHarness, migrateHarnessSettings, publicHarness, prepareHarness } from './harness.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 4317);
@@ -19,13 +19,13 @@ let db = existsSync(dbPath) ? JSON.parse(readFileSync(dbPath, 'utf8')) : {
 };
 db.settings.fontSize ??= 14;
 db.settings.userName ??= 'Local developer';
-db.settings.scaleAgentPath ??= existsSync(path.join(root, '../scale_agent/AGENTS.md')) ? path.resolve(root, '../scale_agent') : '';
-db.settings.harnesses ??= [];
+const migratedHarnesses = migrateHarnessSettings(db.settings);
 for (const chat of db.chats) chat.harnessId ??= 'none';
 db.revision ??= 0;
 for (const chat of db.chats) if (chat.status === 'running') { chat.status = 'interrupted'; chat.error = '服务器重启，任务已中断。'; }
 const jobs = new Map(), clients = new Set();
 function save() { writeFileSync(dbPath + '.tmp', JSON.stringify(db, null, 2), { mode: 0o600 }); renameSync(dbPath + '.tmp', dbPath); }
+if (migratedHarnesses) save();
 function publish() { db.revision++; save(); for (const c of clients) c.write(`data: ${JSON.stringify(db)}\n\n`); }
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function capture(args) {
@@ -121,7 +121,7 @@ const server = http.createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 128000) fail('请求过大', 413); }
       const body = JSON.parse(raw || '{}');
       if (route === '/api/harness/check') {
-        if (body.type && !['scale', 'generic'].includes(body.type)) fail('Harness 类型无效');
+        if (body.type && !['scale', 'generic', 'forge'].includes(body.type)) fail('Harness 类型无效');
         return json(publicHarness(inspectConfiguredHarness({ id: 'check', name: 'Harness', type: body.type || 'scale', path: body.path }, root)));
       }
       if (route === '/api/projects') {
@@ -140,23 +140,20 @@ const server = http.createServer(async (req, res) => {
         if (!Number.isInteger(fontSize) || fontSize < 12 || fontSize > 20) fail('字体大小应为 12–20 的整数');
         const userName = body.userName ?? db.settings.userName;
         if (typeof userName !== 'string' || !userName.trim() || [...userName.trim()].length > 40) fail('用户名称需为 1–40 个字符');
-        let scaleAgentPath = body.scaleAgentPath ?? db.settings.scaleAgentPath;
-        if (typeof scaleAgentPath !== 'string') fail('scale-agent 路径必须是字符串');
-        scaleAgentPath = scaleAgentPath.trim() ? inspectHarness(scaleAgentPath, root).sourceRoot : '';
         const inputHarnesses = body.harnesses ?? db.settings.harnesses;
         if (!Array.isArray(inputHarnesses)) fail('Harness 列表无效');
-        const ids = new Set(['none', 'mpucporter']);
+        const ids = new Set(['none']);
         const harnesses = inputHarnesses.map(h => {
           if (!h || typeof h.id !== 'string' || !/^[a-z][a-z0-9-]{0,79}$/.test(h.id) || ids.has(h.id)) fail('Harness 标识无效或重复');
           ids.add(h.id);
           if (typeof h.name !== 'string' || !h.name.trim() || [...h.name.trim()].length > 80) fail('Harness 名称需为 1–80 个字符');
-          if (!['generic', 'scale'].includes(h.type)) fail('Harness 类型无效');
+          if (!['generic', 'scale', 'forge'].includes(h.type)) fail('Harness 类型无效');
           if (typeof h.path !== 'string') fail('Harness 路径必须是字符串');
           const config = { id: h.id, name: h.name.trim(), type: h.type, path: h.path.trim() };
           if (config.path) config.path = inspectConfiguredHarness(config, root).sourceRoot;
           return config;
         });
-        db.settings = { backend: 'cursor', model: body.model, mode: body.mode, force: body.force === true, fontSize, scaleAgentPath, harnesses, userName: userName.trim() }; publish(); return json(db.settings);
+        db.settings = { backend: 'cursor', model: body.model, mode: body.mode, force: body.force === true, fontSize, harnesses, userName: userName.trim() }; publish(); return json(db.settings);
       }
       if (route === '/api/chats') {
         if (!db.projects.some(p => p.id === body.projectId)) fail('请先选择项目');

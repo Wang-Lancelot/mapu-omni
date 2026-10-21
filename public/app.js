@@ -3,7 +3,7 @@ const escape = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;'
 let state, selectedProject = localStorage.getItem('project'), selectedChat = localStorage.getItem('chat'), cliInfo, signature = '', toastTimer, sending = false;
 const draftHarnesses = JSON.parse(localStorage.getItem('draftHarnesses') || '{}');
 let harnessDrafts = [], checkingHarnesses = new Set();
-function catalog() { return [{id:'mpucporter', name:'MPUCPorter', type:'scale', path:state.settings.scaleAgentPath || ''}, ...(state.settings.harnesses || [])]; }
+function catalog() { return state.settings.harnesses || []; }
 function harnessName(id, chat) { return chat?.harness?.name || catalog().find(h => h.id === id)?.name || '已删除的 Harness'; }
 const expandedProjects = new Set(JSON.parse(localStorage.getItem('expandedProjects') || '[]'));
 function applyState(next) {
@@ -62,7 +62,7 @@ function render() {
   if (signature !== nextSignature) {
     const panel = $('#messages'); const nearBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight < 120;
     if (!chat?.messages.length) {
-      panel.innerHTML = `<div class="welcome"><div class="welcome-eyebrow">MaPU Omni · 码炉</div><h1>在码炉，让代码各展所能。</h1><p class="subtitle">连接你的项目，与 MaPU Omni 一起完成 MPUC 编程。</p><div class="suggestions"><button class="suggestion" data-prompt="请先阅读项目文件，介绍这个项目的结构和技术栈，暂时不要修改文件。"><span class="suggestion-icon">⌘</span><b>了解这个项目</b><small>梳理代码结构与技术栈</small></button><button class="suggestion" data-prompt="请分析当前项目中值得改进的地方，给出具体建议，暂时不要修改文件。"><span class="suggestion-icon">↗</span><b>发现改进空间</b><small>一起找到下一个优化点</small></button><button class="suggestion" data-prompt="我想在这个项目中实现一个新功能，请先了解项目并与我讨论需求。"><span class="suggestion-icon">✳</span><b>构建新功能</b><small>把一个想法变成可用的代码</small></button></div><div class="workspace-path"><svg class="workspace-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg> ${escape(project?.path || '添加项目以开始')}</div></div>`;
+      panel.innerHTML = `<div class="welcome"><div class="welcome-eyebrow">MaPU Omni · 码炉</div><h1>在码炉，让代码各展所能。</h1><p class="subtitle">连接你的项目，与 MaPU Omni 一起完成 MaPU Scale 编程。</p><div class="suggestions"><button class="suggestion" data-prompt="请先阅读项目文件，介绍这个项目的结构和技术栈，暂时不要修改文件。"><span class="suggestion-icon">⌘</span><b>了解这个项目</b><small>梳理代码结构与技术栈</small></button><button class="suggestion" data-prompt="请分析当前项目中值得改进的地方，给出具体建议，暂时不要修改文件。"><span class="suggestion-icon">↗</span><b>发现改进空间</b><small>一起找到下一个优化点</small></button><button class="suggestion" data-prompt="我想在这个项目中实现一个新功能，请先了解项目并与我讨论需求。"><span class="suggestion-icon">✳</span><b>构建新功能</b><small>把一个想法变成可用的代码</small></button></div><div class="workspace-path"><svg class="workspace-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg> ${escape(project?.path || '添加项目以开始')}</div></div>`;
     } else {
       panel.innerHTML = chat.messages.map(m => `<article class="message ${m.role}">${m.role === 'assistant' ? `<div class="message-label"><strong>✳ MaPU Omni</strong><span>${escape(m.actualModel || m.model || '')}</span>${m.harnessId && m.harnessId !== 'none' ? `<span class="message-harness">${escape(m.harnessName || harnessName(m.harnessId, chat))}</span>` : ''}</div>` : ''}<div>${formatText(m.text)}</div></article>`).join('') + (busy ? `<div class="run-indicator">◌ ${chat.status === 'stopping' ? '正在停止进程…' : '码炉正在执行任务…'}</div>` : '') + (chat.error ? `<div class="error-message">${escape(chat.error)}</div>` : chat.status === 'cancelled' ? '<div class="run-indicator">任务已停止，可继续发送消息。</div>' : '');
     }
@@ -124,10 +124,10 @@ $('#harness-search').oninput = e => {
 };
 function renderHarnessCards() {
   $('#harness-catalog').innerHTML = harnessDrafts.map(h => `<article class="harness-settings" data-harness-id="${escape(h.id)}" data-harness-name="${escape(h.name)}">
-    <div class="harness-card-heading"><h3 data-card-title>${escape(h.name)}</h3>${h.id === 'mpucporter' ? '<span class="settings-tag">内置 Harness</span>' : `<button type="button" class="text-button remove-harness" data-remove-harness="${escape(h.id)}" aria-label="删除 ${escape(h.name)}">删除</button>`}</div>
-    ${h.id === 'mpucporter' ? '' : `<label>名称<input data-harness-field="name" value="${escape(h.name)}" maxlength="80" placeholder="例如：并行代码改写"></label><label>类型<select data-harness-field="type"><option value="generic" ${h.type === 'generic' ? 'selected' : ''}>通用 · AGENTS.md</option><option value="scale" ${h.type === 'scale' ? 'selected' : ''}>Scale · scale-agent</option></select></label>`}
+    <div class="harness-card-heading"><h3 data-card-title>${escape(h.name)}</h3><button type="button" class="text-button remove-harness" data-remove-harness="${escape(h.id)}" aria-label="删除 ${escape(h.name)}">删除</button></div>
+    <label>名称<input data-harness-field="name" value="${escape(h.name)}" maxlength="80" placeholder="例如：并行代码改写"></label><label>类型<select data-harness-field="type"><option value="generic" ${h.type === 'generic' ? 'selected' : ''}>通用 · AGENTS.md</option><option value="scale" ${h.type === 'scale' ? 'selected' : ''}>Scale · Multi-Lang</option><option value="forge" ${h.type === 'forge' ? 'selected' : ''}>Scale · Forge</option></select></label>
     <label>本地目录<input data-harness-field="path" value="${escape(h.path)}" placeholder="/绝对路径/my-harness 或 ../my-harness" autocomplete="off"></label>
-    <p data-harness-help>${h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。'}</p>
+    <p data-harness-help>${h.type === 'forge' ? '选择 SCALE_Forge 根目录；仅加载规则、Skills、知识、工具与工作流，不打包原工程状态及运行产物。' : h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。'}</p>
     <button type="button" class="text-button" data-check-harness="${escape(h.id)}">检测 Harness</button><div class="harness-status" role="status">尚未检测</div>
   </article>`).join('');
   $('#harness-search').oninput({target:$('#harness-search')});
@@ -150,7 +150,7 @@ $('#harness-catalog').addEventListener('input', e => {
   const h = harnessDrafts.find(h => h.id === card.dataset.harnessId); h[field] = e.target.value;
   if (field === 'name') { card.dataset.harnessName = h.name; card.querySelector('[data-card-title]').textContent = h.name || '新 Harness'; card.querySelector('[data-remove-harness]')?.setAttribute('aria-label', `删除 ${h.name || '新 Harness'}`); }
   card.querySelector('.harness-status').textContent = '配置已修改，请重新检测或保存';
-  if (field === 'type') card.querySelector('[data-harness-help]').textContent = h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。';
+  if (field === 'type') card.querySelector('[data-harness-help]').textContent = h.type === 'forge' ? '选择 SCALE_Forge 根目录；仅加载规则、Skills、知识、工具与工作流，不打包原工程状态及运行产物。' : h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。';
 });
 $('#harness-catalog').addEventListener('click', async e => {
   const remove = e.target.closest('[data-remove-harness]');
@@ -251,7 +251,7 @@ $('#connection-notice').onclick = e => { if (e.target.closest('button')) openSet
 $('#refresh-cli').onclick = refreshCli;
 $('#settings-form').onsubmit = async e => {
   e.preventDefault(); const form = e.target;
-  try { await updateSettings({ backend:form.elements.backend.value, model:form.elements.customModel.value.trim() || form.elements.model.value, mode:form.elements.mode.value, force:form.elements.force.checked, fontSize:Number(form.elements.fontSize.value), userName:form.elements.userName.value.trim(), scaleAgentPath:harnessDrafts.find(h => h.id === 'mpucporter').path.trim(), harnesses:harnessDrafts.filter(h => h.id !== 'mpucporter') }); applyState(await api('state')); $('#settings-dialog').close(); toast('设置已保存'); } catch(error) { toast(error.message); }
+  try { await updateSettings({ backend:form.elements.backend.value, model:form.elements.customModel.value.trim() || form.elements.model.value, mode:form.elements.mode.value, force:form.elements.force.checked, fontSize:Number(form.elements.fontSize.value), userName:form.elements.userName.value.trim(), harnesses:harnessDrafts }); applyState(await api('state')); $('#settings-dialog').close(); toast('设置已保存'); } catch(error) { toast(error.message); }
 };
 $('#mode').onchange = async e => { try { await updateSettings({mode:e.target.value}); applyState(await api('state')); } catch(error) { toast(error.message); render(); } };
 $('#terminal-toggle').onclick = () => { $('#terminal').hidden = !$('#terminal').hidden; localStorage.setItem('terminal', String(!$('#terminal').hidden)); };
