@@ -1,0 +1,67 @@
+# MaPU Omni · 码炉
+
+面向 MaPU Scale 编程的本地网页版 Agent 工作空间，中文名「码炉」。通过专用 Harness 承载代码转码、代码优化和微码改写等工作流。浏览器提交 prompt，Node.js 后端在所选项目目录启动真实 Cursor CLI 子进程，实时展示回复及终端日志。
+
+## 启动
+
+需要 Node.js 22+ 和官方 Cursor CLI。无需安装 npm 依赖。
+
+```sh
+agent login
+npm start
+```
+
+打开 http://127.0.0.1:4317 。已登录 Cursor 的机器可直接使用。登录状态和可用模型可在设置里刷新；此应用不保存 API Key。
+
+## 使用
+
+- 左侧「＋」添加本机目录（绝对路径或 `~/…`），然后创建对话。工作空间左侧箭头可展开所属对话；最近对话按更新时间显示所有工作空间的对话。
+- 工作空间和对话右侧「×」可删除，操作前会确认。删除工作空间会一并删除所属对话记录，不会删除磁盘文件；有任务运行时需先停止任务。
+- 左侧栏右边缘可拖动调整宽度，刷新后保留；双击边缘恢复默认宽度，也可聚焦边缘后用左右方向键调整。
+- 设置按通用、模型与连接、Harness、执行与权限分类；通用中可修改用户显示名称，Harness 中可搜索、添加、编辑和删除自定义集成，数量没有固定上限。
+- 设置中可调整界面字体大小（12–20 px），保存后立即应用，重启后保留。
+- 输入 prompt，Enter 发送，Shift+Enter 换行；点击停止按钮终止任务。
+- 设置中选择 Cursor 后端、模型和执行模式。Codex 为预留选项，当前禁用。
+- 模型列表来自 `agent --list-models`。也可填写账号支持的自定义模型 ID。保存后，下一条消息通过真实 `--model <id>` 使用该模型；已在运行的任务保持原模型。实际模型由 CLI 初始化事件返回并显示在回复上。
+- 应用对你选择的工作目录传入 `--trust`，仅适用于当前执行。Agent 可执行任务；Ask / Plan 为只读模式。自动允许工具执行默认关闭，可在设置显式打开 `--force`；关闭时，CLI 权限行为以本机 Cursor 配置为准，非交互执行无法响应交互式审批，需要调整 Cursor 配置或开启该选项。
+- 顶部「终端」显示真实命令、stdout、stderr、工具事件及退出状态，是进程日志面板，不是任意 shell 输入框。
+- 多段对话使用 Cursor `--resume <session_id>` 维持上下文。运行中可切换项目、创建其他对话，任务继续执行。
+- 项目、对话、设置保存在 `.data/workspace.json`，已被 Git 忽略。服务器重启后，先前运行的任务显示为中断。
+
+## 配置与验证
+
+```sh
+PORT=4318 npm start
+CURSOR_CLI=/absolute/path/to/agent npm start
+npm test
+```
+
+测试使用独立临时目录和 CLI 测试替身，覆盖项目路径校验、真实子进程传参、模型与会话恢复、取消任务、持久化及跨站请求防护，不消耗模型额度。与 Cursor 服务的端到端执行需要有效登录和网络。
+
+应用仅监听 `127.0.0.1`，校验 Host/Origin，不开放跨域访问；prompt 作为参数直接传入子进程，不拼接 shell。这个架构需要本地文件系统和进程能力，不能直接部署到不支持子进程的静态网站或 Cloudflare Workers。
+
+官方 CLI 参考：https://cursor.com/docs/cli/overview
+
+## 自定义 Harness
+
+在「设置 → Harness」点击「＋ 添加 Harness」，填写名称、类型和本地目录，再点击「保存设置」。支持任意数量；配置随设置保存，刷新或重启后保留。未填写目录的条目可保存，但不能用于新对话。取消或关闭设置会放弃本次修改。
+
+- **通用 · AGENTS.md**：适合自定义工作流。使用专用目录，根目录必须包含非空 `AGENTS.md`；可附带 `skills/**/SKILL.md`、`agents/*.md` 和文档、脚本等资源。Skills 和角色需包含 frontmatter。资源被复制到版本快照，入口规则和 Skills、角色通过 Cursor 插件加载，执行目录仍为当前项目。不会自动把 Codex、Claude 等其他宿主专用工具转换成 Cursor 工具。
+- **Scale · scale-agent**：使用现有 Scale 适配器，目录要求与 MPUCPorter 一致。
+- 「检测 Harness」检查当前条目的目录与资源；搜索按名称筛选。自定义条目可删除，点击保存后生效；磁盘上的源文件和已有聊天记录会保留。原有 MPUCPorter 仍可通过清空路径停用。
+- 已有对话绑定原 Harness。删除条目后需选择其他 Harness 开始新对话；修改类型、路径或资源后不能继续复用旧会话。切换 Harness 会保留输入草稿并开启新对话。
+- 通用快照不包含 `.git`、`node_modules`、`.data`、Python 环境、构建目录或缓存，不支持符号链接。不要将整个工程或个人主目录作为 Harness 目录。
+
+## MPUCPorter Harness
+
+任意工作空间都可以在输入框底部选择 **无 / MPUCPorter**。MPUCPorter 对应外部 `scale_agent` 仓库；在设置里填写根目录（包含 `AGENTS.md` 和 `scale-agent/`），支持相对 MaPU Omni 根目录的路径，例如 `../scale_agent`，也支持绝对路径和 `~/…`。点击「检测 Harness」检查必需资源，保存后生效。相邻的 `../scale_agent` 存在时首次自动预填路径；留空可停用。
+
+- **无**：使用原有 CLI 流程，不传入 MPUCPorter 的插件和附加目录，也不注入其运行配置。
+- **MPUCPorter**：Cursor 的 cwd 始终是当前真实项目目录。通过 `--plugin-dir` 加载 Cursor 原生插件，注册六个 Skills、根规则与两个审核角色；`--add-dir` 提供 Harness、快照和记忆目录访问。
+- 每次用户消息显式要求重读 Harness 入口，按需加载知识，不把整库塞进 prompt。源规则中的 Codex `collaboration.spawn_agent` 映射为 Cursor 的实际原生子代理能力。审核员适配文件包含只读权限；资源可发现不等于已实际执行审核，模型必须如实记录执行结果。
+- 适配器在 `.data/harness-adapters/` 保存按内容指纹隔离的资源快照，转换 Cursor 的组件声明和相对链接；不会安装全局 Skills 或改写外部 Harness 源文件。适配文件属于运行派生数据，源资源保持原有目录结构。
+- Harness 中的 `projects/<工程>/` 映射到 `.data/harness-memory/<工作空间ID>/projects/<工作空间ID>/`。源代码、测试、构建输出仍在实际工程；记忆初始化使用该工程的绝对 `--code-root`。纯知识查询不创建记忆项目。
+- Harness 选择固定在对话上；切换时进入新对话，草稿中的用户输入保留。旧对话可继续查看和恢复原选择。Harness 路径、资源指纹或适配器版本变化后，服务会拒绝继续复用旧 Cursor 会话，提示新建对话。
+- 终端显示 Harness 版本、指纹、真实工作目录和记忆位置；回复标注 MPUCPorter。源码与快照的“只读使用”要求属于工作流指令，进程文件访问仍由 Cursor 本机权限及沙箱设置管理。
+
+知识脚本需要 Python 3.9+ 与 PyYAML。Ask / Plan 下部分 shell 操作可能被 Cursor 拒绝，这是 CLI 权限行为；需要运行检索脚本时使用合适的执行模式及现有权限配置。UI 不会因为选择 Harness 自动打开 `--force`。
