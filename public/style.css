@@ -86,3 +86,25 @@
 .harness-toolbar h3{margin:0}
 .remove-harness{color:#a34c43}
 .harness-settings input,.harness-settings select{min-width:0}
+/* Use the same readable width for replies and the composer. */
+.messages{padding-left:max(32px,calc((100% - var(--content-width,960px))/2));padding-right:max(32px,calc((100% - var(--content-width,960px))/2))}
+.compose-area{max-width:calc(var(--content-width,960px) + 68px)}
+.markdown-preview{min-width:0}
+.markdown-preview>:first-child{margin-top:0}
+.markdown-preview>:last-child{margin-bottom:0}
+.markdown-preview p{margin:0 0 1em}
+.markdown-preview h1,.markdown-preview h2,.markdown-preview h3,.markdown-preview h4,.markdown-preview h5,.markdown-preview h6{line-height:1.45;margin:1.4em 0 .65em;font-weight:600;color:#343f2e}
+.markdown-preview h1{font-size:1.65em}.markdown-preview h2{font-size:1.4em}.markdown-preview h3{font-size:1.18em}
+.markdown-preview ul,.markdown-preview ol{padding-left:1.8em;margin:.7em 0 1em}
+.markdown-preview li{margin:.25em 0}.markdown-preview li>p{margin:.4em 0}
+.markdown-preview blockquote{margin:1em 0;padding:.4em 1em;border-left:3px solid #a6b69a;color:#728068;background:#f7f9f3}
+.markdown-preview a{color:#477e66;text-decoration:underline;text-underline-offset:3px}
+.markdown-preview :not(pre)>code{background:#f1f3ec;padding:.15em .35em;border-radius:4px;font-size:.9em}
+.markdown-preview pre{max-width:100%;line-height:1.7}.markdown-preview pre code{font-size:inherit}
+.markdown-preview table{display:block;max-width:100%;overflow:auto;border-collapse:collapse;margin:1em 0;font-size:.92em}
+.markdown-preview th,.markdown-preview td{border:1px solid #dfe5d7;padding:.55em .85em;min-width:80px}
+.markdown-preview th{background:#f3f6ee;font-weight:600}.markdown-preview tr:nth-child(even){background:#fafbf8}
+.markdown-preview hr{border:0;border-top:1px solid #e5e8df;margin:1.5em 0}
+.markdown-preview input[type=checkbox]{pointer-events:none;accent-color:#637b53}
+@media(max-width:1100px){.messages{padding-left:max(25px,calc((100% - var(--content-width,960px))/2));padding-right:max(25px,calc((100% - var(--content-width,960px))/2))}}
+@media(max-width:760px){.messages{padding:20px}.compose-area{max-width:100%}}

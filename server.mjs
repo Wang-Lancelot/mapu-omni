@@ -18,6 +18,7 @@ let db = existsSync(dbPath) ? JSON.parse(readFileSync(dbPath, 'utf8')) : {
   settings: { backend: 'cursor', model: 'auto', mode: 'agent', force: false, fontSize: 14 }
 };
 db.settings.fontSize ??= 14;
+db.settings.contentWidth ??= 960;
 db.settings.userName ??= 'Local developer';
 const migratedHarnesses = migrateHarnessSettings(db.settings);
 for (const chat of db.chats) chat.harnessId ??= 'none';
@@ -138,6 +139,8 @@ const server = http.createServer(async (req, res) => {
         if (!['agent', 'ask', 'plan'].includes(body.mode)) fail('执行模式无效');
         const fontSize = body.fontSize ?? db.settings.fontSize;
         if (!Number.isInteger(fontSize) || fontSize < 12 || fontSize > 20) fail('字体大小应为 12–20 的整数');
+        const contentWidth = body.contentWidth ?? db.settings.contentWidth;
+        if (![0, 740, 960, 1200, 1440].includes(contentWidth)) fail('对话内容宽度无效');
         const userName = body.userName ?? db.settings.userName;
         if (typeof userName !== 'string' || !userName.trim() || [...userName.trim()].length > 40) fail('用户名称需为 1–40 个字符');
         if (body.harnesses !== undefined && body.harnessesBase !== undefined &&
@@ -157,7 +160,7 @@ const server = http.createServer(async (req, res) => {
           if (config.path) config.path = inspectConfiguredHarness(config, root).sourceRoot;
           return config;
         });
-        db.settings = { backend: 'cursor', model: body.model, mode: body.mode, force: body.force === true, fontSize, harnesses, userName: userName.trim() }; publish(); return json(db.settings);
+        db.settings = { backend: 'cursor', model: body.model, mode: body.mode, force: body.force === true, fontSize, contentWidth, harnesses, userName: userName.trim() }; publish(); return json(db.settings);
       }
       if (route === '/api/chats') {
         if (!db.projects.some(p => p.id === body.projectId)) fail('请先选择项目');
@@ -188,7 +191,7 @@ const server = http.createServer(async (req, res) => {
       fail('接口不存在', 404);
     }
     if (route.startsWith('/api/')) fail('接口不存在', 404);
-    const files = { '/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css' };
+    const files = { '/': 'index.html', '/app.js': 'app.js', '/style.css': 'style.css', '/vendor/marked.js': 'vendor/marked.js', '/vendor/purify.js': 'vendor/purify.js' };
     if (!files[route]) fail('Not found', 404);
     res.writeHead(200, { 'Content-Type': `${mime[path.extname(files[route])]} ; charset=utf-8`, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'" });
     res.end(readFileSync(path.join(root, 'public', files[route])));

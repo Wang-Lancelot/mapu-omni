@@ -21,7 +21,13 @@ function remember() { localStorage.setItem('project', selectedProject || ''); lo
 function selectProject(id) { selectedProject = id; selectedChat = null; signature = ''; remember(); render(); $('.sidebar').classList.remove('open'); }
 function selectChat(id) { selectedChat = id; selectedProject = currentChat().projectId; signature = ''; remember(); render(); $('.sidebar').classList.remove('open'); }
 function formatText(text) {
-  return text.split(/(```[\s\S]*?```)/g).map(part => part.startsWith('```') ? `<pre><code>${escape(part.replace(/^```[^\n]*\n?/, '').replace(/```$/, ''))}</code></pre>` : `<span class="message-text">${escape(part)}</span>`).join('');
+  // Restrict generated markup before inserting model output into the document.
+  return DOMPurify.sanitize(marked.parse(String(text ?? ''), {gfm:true, breaks:true}), {
+    ALLOWED_TAGS: ['p','br','h1','h2','h3','h4','h5','h6','strong','em','del','blockquote','ul','ol','li','pre','code','hr','a','table','thead','tbody','tr','th','td','input'],
+    ALLOWED_ATTR: ['href','title','start','align','type','checked','disabled'],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+  });
 }
 function render() {
   if (!state) return;
@@ -34,6 +40,7 @@ function render() {
   $('#profile-avatar').textContent = [...userName][0].toLocaleUpperCase();
   const busy = chat && ['running','stopping'].includes(chat.status);
   document.documentElement.style.fontSize = `${state.settings.fontSize || 14}px`;
+  $('.conversation').style.setProperty('--content-width', state.settings.contentWidth === 0 ? '100%' : `${state.settings.contentWidth || 960}px`);
   const recent = [...state.chats].sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   const chatRow = c => `<div class="sidebar-item"><button class="chat-row ${c.id === selectedChat ? 'active' : ''}" data-chat="${c.id}" title="${escape(c.title)}"><span class="dot ${['running', 'stopping'].includes(c.status) ? 'running' : ''}"></span><span>${escape(c.title)}</span></button><button class="delete-item" data-delete-chat="${c.id}" title="删除对话" aria-label="删除对话：${escape(c.title)}">×</button></div>`;
   $('#projects').innerHTML = state.projects.map(p => {
@@ -64,7 +71,7 @@ function render() {
     if (!chat?.messages.length) {
       panel.innerHTML = `<div class="welcome"><div class="welcome-eyebrow">MaPU Omni · 码炉</div><h1>在码炉，让代码各展所能。</h1><p class="subtitle">连接你的项目，与 MaPU Omni 一起完成 MaPU Scale 编程。</p><div class="suggestions"><button class="suggestion" data-prompt="请先阅读项目文件，介绍这个项目的结构和技术栈，暂时不要修改文件。"><span class="suggestion-icon">⌘</span><b>了解这个项目</b><small>梳理代码结构与技术栈</small></button><button class="suggestion" data-prompt="请分析当前项目中值得改进的地方，给出具体建议，暂时不要修改文件。"><span class="suggestion-icon">↗</span><b>发现改进空间</b><small>一起找到下一个优化点</small></button><button class="suggestion" data-prompt="我想在这个项目中实现一个新功能，请先了解项目并与我讨论需求。"><span class="suggestion-icon">✳</span><b>构建新功能</b><small>把一个想法变成可用的代码</small></button></div><div class="workspace-path"><svg class="workspace-icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-folder-open"></use></svg> ${escape(project?.path || '添加项目以开始')}</div></div>`;
     } else {
-      panel.innerHTML = chat.messages.map(m => `<article class="message ${m.role}">${m.role === 'assistant' ? `<div class="message-label"><strong>✳ MaPU Omni</strong><span>${escape(m.actualModel || m.model || '')}</span>${m.harnessId && m.harnessId !== 'none' ? `<span class="message-harness">${escape(m.harnessName || harnessName(m.harnessId, chat))}</span>` : ''}</div>` : ''}<div>${formatText(m.text)}</div></article>`).join('') + (busy ? `<div class="run-indicator">◌ ${chat.status === 'stopping' ? '正在停止进程…' : '码炉正在执行任务…'}</div>` : '') + (chat.error ? `<div class="error-message">${escape(chat.error)}</div>` : chat.status === 'cancelled' ? '<div class="run-indicator">任务已停止，可继续发送消息。</div>' : '');
+      panel.innerHTML = chat.messages.map(m => `<article class="message ${m.role}">${m.role === 'assistant' ? `<div class="message-label"><strong>✳ MaPU Omni</strong><span>${escape(m.actualModel || m.model || '')}</span>${m.harnessId && m.harnessId !== 'none' ? `<span class="message-harness">${escape(m.harnessName || harnessName(m.harnessId, chat))}</span>` : ''}</div>` : ''}<div class="${m.role === 'assistant' ? 'markdown-preview' : 'message-text'}">${m.role === 'assistant' ? formatText(m.text) : escape(m.text)}</div></article>`).join('') + (busy ? `<div class="run-indicator">◌ ${chat.status === 'stopping' ? '正在停止进程…' : '码炉正在执行任务…'}</div>` : '') + (chat.error ? `<div class="error-message">${escape(chat.error)}</div>` : chat.status === 'cancelled' ? '<div class="run-indicator">任务已停止，可继续发送消息。</div>' : '');
     }
     if (chat?.messages.length && (nearBottom || !signature)) panel.scrollTop = panel.scrollHeight;
     else if (!chat?.messages.length) panel.scrollTop = 0;
@@ -136,7 +143,7 @@ function openSettings(section = 'general') {
   selectSettingsTab(section); $('#harness-search').value = '';
   harnessDraftBase = catalog().map(h => ({...h}));
   harnessDrafts = harnessDraftBase.map(h => ({...h})); renderHarnessCards();
-  const f = $('#settings-form'); f.elements.userName.value = state.settings.userName || 'Local developer'; f.elements.backend.value = 'cursor'; f.elements.mode.value = state.settings.mode; f.elements.force.checked = state.settings.force; f.elements.customModel.value = ''; f.elements.fontSize.value = state.settings.fontSize || 14;
+  const f = $('#settings-form'); f.elements.userName.value = state.settings.userName || 'Local developer'; f.elements.backend.value = 'cursor'; f.elements.mode.value = state.settings.mode; f.elements.force.checked = state.settings.force; f.elements.customModel.value = ''; f.elements.fontSize.value = state.settings.fontSize || 14; f.elements.contentWidth.value = state.settings.contentWidth ?? 960;
   populateModels(); $('#settings-dialog').showModal();
 }
 $('#add-harness').onclick = () => {
@@ -258,7 +265,7 @@ $('#settings-form').onsubmit = async e => {
   e.preventDefault(); const form = e.target;
   try {
     const harnessChanges = JSON.stringify(harnessDrafts) === JSON.stringify(harnessDraftBase) ? {} : {harnesses:harnessDrafts, harnessesBase:harnessDraftBase};
-    await updateSettings({ backend:form.elements.backend.value, model:form.elements.customModel.value.trim() || form.elements.model.value, mode:form.elements.mode.value, force:form.elements.force.checked, fontSize:Number(form.elements.fontSize.value), userName:form.elements.userName.value.trim(), ...harnessChanges });
+    await updateSettings({ backend:form.elements.backend.value, model:form.elements.customModel.value.trim() || form.elements.model.value, mode:form.elements.mode.value, force:form.elements.force.checked, fontSize:Number(form.elements.fontSize.value), contentWidth:Number(form.elements.contentWidth.value), userName:form.elements.userName.value.trim(), ...harnessChanges });
     applyState(await api('state')); $('#settings-dialog').close(); toast('设置已保存');
   } catch(error) { toast(error.message); }
 

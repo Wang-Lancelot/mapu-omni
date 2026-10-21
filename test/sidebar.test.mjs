@@ -83,10 +83,11 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   assert.doesNotMatch(node('#harness-catalog').innerHTML,/内置 Harness/);
   await node('#harness-catalog').click({target:{closest:s=>s==='[data-remove-harness]'?{dataset:{removeHarness:'mpucporter'}}:null}});
   assert.equal(node('#harness-catalog').innerHTML,'');
-  const values={backend:'cursor',customModel:'',model:'auto',mode:'agent',fontSize:'14',userName:'User'};
+  const values={backend:'cursor',customModel:'',model:'auto',mode:'agent',fontSize:'14',contentWidth:'1200',userName:'User'};
   const elements=Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value}]));elements.force={checked:false};
   await node('#settings-form').onsubmit({preventDefault(){},target:{elements}});
   assert.deepEqual(snapshot.settings.harnesses,[]);
+  assert.equal(snapshot.settings.contentWidth,1200);
   assert.equal(Object.hasOwn(snapshot.settings,'scaleAgentPath'),false);
   assert.equal(node('#harness').innerHTML,'<option value="none">无</option>');
   // An open settings draft predates another client adding MicroCode.

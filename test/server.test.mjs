@@ -53,13 +53,18 @@ test('project, CLI execution, model, resume, cancellation, persistence and origi
  server.kill('SIGTERM');await once(server,'exit');await start();
  const restored=(await request('state')).body;
  assert.equal(restored.settings.fontSize,14);
+ assert.equal(restored.settings.contentWidth,960);
  assert.equal(restored.chats[0].messages.length,6);assert.equal(restored.settings.model,'test-model');assert.equal(restored.projects.length,initial.projects.length+1);
- const settings = {...restored.settings,fontSize:18,userName:'  测试用户  '};
+ const settings = {...restored.settings,fontSize:18,contentWidth:1200,userName:'  测试用户  '};
  assert.equal((await request('settings',settings)).status,200);
  assert.equal((await request('state')).body.settings.userName,'测试用户');
  for (const userName of ['', '  ', 42, '名'.repeat(41)]) assert.equal((await request('settings',{...settings,userName})).status,400);
  assert.equal((await request('settings',{...settings,fontSize:99})).status,400);
  assert.equal((await request('settings',{...settings,fontSize:'16'})).status,400);
+ for (const contentWidth of [-1, 800, '960']) assert.equal((await request('settings',{...settings,contentWidth})).status,400);
+ assert.equal((await request('settings',{...settings,contentWidth:0})).status,200);
+ assert.equal((await request('state')).body.settings.contentWidth,0);
+ assert.equal((await request('settings',settings)).status,200);
  const spare=(await request('chats',{projectId:initial.projects[0].id})).body;
  const beforeDelete=(await request('state')).body;
  const deletion=await request(`chats/${spare.id}/delete`,{});
@@ -76,7 +81,7 @@ test('project, CLI execution, model, resume, cancellation, persistence and origi
  assert.equal((await request(`chats/${chat.id}/send`,{prompt:'removed'})).status,404);
  server.kill('SIGTERM');await once(server,'exit');await start();
  cleaned=(await request('state')).body;
- assert.equal(cleaned.settings.fontSize,18); assert.equal(cleaned.settings.userName,'测试用户'); assert.equal(cleaned.chats.length,0);
+ assert.equal(cleaned.settings.contentWidth,1200); assert.equal(cleaned.settings.fontSize,18); assert.equal(cleaned.settings.userName,'测试用户'); assert.equal(cleaned.chats.length,0);
  assert.equal((await request(`projects/${initial.projects[0].id}/delete`,{})).status,200);
  assert.equal((await request('state')).body.projects.length,0);
  assert.equal((await request('projects',{path:os.tmpdir(),name:'Re-add'})).status,200);
