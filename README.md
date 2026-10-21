@@ -73,3 +73,9 @@ npm test
 知识脚本需要 Python 3.9+ 与 PyYAML。Ask / Plan 下部分 shell 操作可能被 Cursor 拒绝，这是 CLI 权限行为；需要运行检索脚本时使用合适的执行模式及现有权限配置。UI 不会因为选择 Harness 自动打开 `--force`。
 
 Markdown 预览使用本地随附的 Marked 18.1.1 与 DOMPurify 3.4.17（`public/vendor/`，许可证随文件保留），无需外部 CDN 或 npm 安装。模型生成的 HTML 经过白名单清理后再显示。
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)，允许商用、修改、分发和闭源使用，使用或分发时需保留版权声明及许可证文本。
+
+随附的 Marked、DOMPurify 和 Lucide 图标遵循各自许可证，分别见 `public/vendor/marked.LICENSE`、`public/vendor/purify.LICENSE` 和 `public/icons/LUCIDE-LICENSE`。外部 Cursor CLI 和用户配置的 Harness 遵循各自的许可与服务条款。
