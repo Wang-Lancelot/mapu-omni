@@ -28,7 +28,7 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   const original = structuredClone(snapshot);
   const requests = [];
   const fetch = async (route, options) => {
-    if (route === '/api/settings') snapshot={...snapshot,revision:snapshot.revision+1,settings:JSON.parse(options.body)};
+    if (route === '/api/settings') { const {harnessesBase,...changes}=JSON.parse(options.body);snapshot={...snapshot,revision:snapshot.revision+1,settings:{...snapshot.settings,...changes}}; }
     requests.push(route);
     if (route.endsWith('/delete')) {
       const id = route.split('/')[3];
@@ -41,7 +41,7 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   class EventSource { constructor() { stream = this; } }
   const run = new (Object.getPrototypeOf(async function(){}).constructor)(
     'document','localStorage','fetch','EventSource','window','setTimeout','clearTimeout',
-    readFileSync(new URL('../public/app.js', import.meta.url), 'utf8') + '\nreturn {selectChat, showHarnesses: (items=catalog()) => {harnessDrafts=items.map(h=>({...h}));renderHarnessCards();}};'
+    readFileSync(new URL('../public/app.js', import.meta.url), 'utf8') + '\nreturn {selectChat, showHarnesses: (items=catalog()) => {harnessDraftBase=catalog().map(h=>({...h}));harnessDrafts=items.map(h=>({...h}));renderHarnessCards();}};'
   );
   const ui = await run(document,localStorage,fetch,EventSource,{confirm:()=>true,innerWidth:1280,addEventListener(){}},()=>0,()=>{});
   assert.match(node('#projects').innerHTML,/Conversation a/);
@@ -71,6 +71,9 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   for (const selector of ['#projects','#chats']) assert.doesNotMatch(node(selector).innerHTML,/Conversation [ab]/);
   assert.equal(node('#chat-count').textContent,0);
   assert.equal(requests.filter(r => r === '/api/state').length,1,'deletion does not depend on a follow-up fetch');
+  ui.showHarnesses([{id:'microcode',name:'MicroCode',type:'microcode',path:'/microcode'}]);
+  assert.match(node('#harness-catalog').innerHTML,/<option value="microcode" selected>MaPU · MicroCode<\/option>/);
+  assert.match(node('#harness-catalog').innerHTML,/<option value="cuda" >Scale · CUDA<\/option>/);
   ui.showHarnesses([{id:'mpucagent',name:'MPUCAgent',type:'cuda',path:'/knowledge'}]);
   assert.match(node('#harness-catalog').innerHTML,/<option value="cuda" selected>Scale · CUDA<\/option>/);
   assert.match(node('#harness-catalog').innerHTML,/<option value="forge" >Scale · Forge<\/option>/);
@@ -86,4 +89,16 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   assert.deepEqual(snapshot.settings.harnesses,[]);
   assert.equal(Object.hasOwn(snapshot.settings,'scaleAgentPath'),false);
   assert.equal(node('#harness').innerHTML,'<option value="none">无</option>');
+  // An open settings draft predates another client adding MicroCode.
+  ui.showHarnesses();
+  const microcode={id:'microcode',name:'MicroCode',type:'microcode',path:'/microcode'};
+  snapshot={...snapshot,revision:snapshot.revision+1,settings:{...snapshot.settings,harnesses:[microcode]}};
+  stream.onmessage({data:JSON.stringify(snapshot)});
+  assert.match(node('#harness').innerHTML,/MicroCode/);
+  elements.fontSize.value='18';
+  await node('#settings-form').onsubmit({preventDefault(){},target:{elements}});
+  assert.equal(snapshot.settings.fontSize,18);
+  assert.deepEqual(snapshot.settings.harnesses,[microcode],'saving unrelated settings keeps a newly added Harness');
+  assert.match(node('#harness').innerHTML,/MicroCode/);
+
 });

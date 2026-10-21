@@ -8,5 +8,5 @@ console.log(JSON.stringify({ type:'system', session_id:'test-session', model:arg
 if (prompt === 'wait') { setInterval(() => {}, 1000); }
 else {
  console.log(JSON.stringify({ type:'assistant', message:{ content:[{type:'text',text:'Test response'}] } }));
- console.log(JSON.stringify({ type:'result', result:JSON.stringify({args,cwd:process.cwd()}), is_error:false }));
+ console.log(JSON.stringify({ type:'result', result:JSON.stringify({args,cwd:process.cwd(),env:{HPP_RESULTS_ROOT:process.env.HPP_RESULTS_ROOT,PYTHONPATH:process.env.PYTHONPATH,PYTHONDONTWRITEBYTECODE:process.env.PYTHONDONTWRITEBYTECODE}}), is_error:false }));
 }

@@ -46,7 +46,21 @@ function inspectGenericHarness(input, appRoot, type = 'generic') {
       if (!existsSync(location) || !statSync(location).isFile() || !statSync(location).size) problem(`不是完整的 CUDA Harness，缺少或为空 ${entry}`);
     }
   }
-  const resourceEntries = type === 'forge' ? forgeEntries : type === 'cuda' ? cudaEntries : null;
+  const microcodeEntries = ['AGENTS.md', 'README.md', 'plugin.json', 'version.json', 'capabilities.json', 'RELEASE-MANIFEST.json', 'suite.lock.json', 'pyproject.toml', 'pytest.ini', 'CHANGELOG.md', 'changelog.d', 'skills', 'agents', 'lib', 'scripts', 'schemas', 'references', 'docs', 'tools', 'governance', 'cases', 'examples', 'evals', 'tests', 'compiler-environment/README.md', 'compiler-environment/environment.json', 'compiler-environment/bin', 'compiler-environment/templates'];
+  let version = 'unversioned';
+  if (type === 'microcode') {
+    for (const entry of ['version.json', 'plugin.json', 'capabilities.json', 'skills/hpp-routing/SKILL.md', 'lib/hpp_harness/__init__.py', 'scripts/_bootstrap.py', 'references/README.md']) {
+      const location = path.join(sourceRoot, entry);
+      if (!existsSync(location) || !statSync(location).isFile() || !statSync(location).size) problem(`不是完整的 MicroCode Harness，缺少或为空 ${entry}`);
+    }
+    try {
+      version = JSON.parse(readFileSync(path.join(sourceRoot, 'version.json'), 'utf8')).product;
+      if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(version)) throw new Error();
+      const plugin = JSON.parse(readFileSync(path.join(sourceRoot, 'plugin.json'), 'utf8'));
+      if (plugin.version !== version) problem('MicroCode plugin.json 与 version.json 版本不一致');
+    } catch (error) { if (error.status) throw error; problem('MicroCode 版本清单无效'); }
+  }
+  const resourceEntries = type === 'forge' ? forgeEntries : type === 'cuda' ? cudaEntries : type === 'microcode' ? microcodeEntries : null;
   const files = resourceEntries ? resourceEntries.flatMap(entry => {
     const location = path.join(sourceRoot, entry);
     if (!existsSync(location)) return [];
@@ -60,7 +74,7 @@ function inspectGenericHarness(input, appRoot, type = 'generic') {
   for (const file of files.filter(f => skills.includes(path.posix.dirname(f.relative)) && path.posix.basename(f.relative) === 'SKILL.md' || agents.includes(f.relative))) {
     if (!/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.test(file.bytes.toString('utf8'))) problem(`${file.relative} 缺少 frontmatter`);
   }
-  return { sourceRoot, version: 'unversioned', fingerprint: digest.digest('hex'), skills, agents, files };
+  return { sourceRoot, version, fingerprint: digest.digest('hex'), skills, agents, files };
 }
 const skillPaths = [
   'workflow/scale-write', 'workflow/scale-port', 'workflow/scale-comm',
@@ -112,7 +126,7 @@ function absoluteLinks(text, originalDir) {
   });
 }
 export function prepareHarness({ info, dataDir, project, chat }) {
-  if (['generic', 'forge', 'cuda'].includes(info.type)) return prepareGenericHarness({ info, dataDir, project, chat });
+  if (['generic', 'forge', 'cuda', 'microcode'].includes(info.type)) return prepareGenericHarness({ info, dataDir, project, chat });
   const memoryRoot = path.join(dataDir, 'harness-memory', project.id);
   const memoryProject = path.join(memoryRoot, 'projects', project.id);
   const binding = createHash('sha256').update(JSON.stringify([info.sourceRoot, project.path, project.id, info.id, info.name])).digest('hex').slice(0, 16);
@@ -182,6 +196,15 @@ function prepareGenericHarness({ info, dataDir, project, chat }) {
     mkdirSync(cudaMemory.memoryRoot, { recursive: true });
     bridge += `\nCUDA 知识库路径适配（优先于原规则的项目配置路径）：首次先读 ${path.join(sourceCopy, 'START_HERE.md')}。common/cuda2scale/、scripts/、docs/、update/ 及模板均以只读快照为根；按 commands/INDEX.md 和 skills/SKILL_INDEX.md 路由，命令是需全文阅读的 playbook，并非 shell 命令或已注册的宿主斜杠命令。projects/<id>/project.yaml 映射为 ${path.join(cudaMemory.memoryProject, 'project.yaml')}，当前项目 ID 为 ${project.id}，code_root 必须是 ${project.path}。配置缺失时可按快照 projects/_template/project.yaml 在上述独立记忆目录创建当前项目配置；只填写已知事实，构建、运行、模式和验收契约缺失时按原协议澄清，不能复制其他项目的配置或猜测。SPEC.yaml、REPORT.md、style/native 副本及 validation/ 等任务产物只写入实际工程下的用户任务目录，不写入知识库或快照。保留 N/C2/C4 确认、S2 数值 PASS 后进入 S3、缺条件标记 NOT_RUN 等原始约束。\n`;
   }
+  const microcodeRuntime = info.type === 'microcode' ? {
+    memoryRoot: path.join(dataDir, 'harness-memory', project.id, 'microcode'),
+    resultsRoot: path.join(dataDir, 'harness-memory', project.id, 'microcode', 'results')
+  } : null;
+  const runtimeEnv = microcodeRuntime ? { HPP_RESULTS_ROOT: microcodeRuntime.resultsRoot, PYTHONDONTWRITEBYTECODE: '1', PYTHONPATH: path.join(sourceCopy, 'lib') } : undefined;
+  if (microcodeRuntime) {
+    mkdirSync(microcodeRuntime.resultsRoot, { recursive: true });
+    bridge += `\nMicroCode 运行适配（优先于原规则中的工作目录与本机输出默认值）：本次 HPP Harness 资源根是 ${sourceCopy}，先按任务读取 skills/hpp-routing/SKILL.md，再渐进加载相关技能、合同和 references。源码路径一律使用实际工程 ${project.path} 中的绝对路径；执行 cwd 保持实际工程。Python 已设置 PYTHONPATH=${runtimeEnv.PYTHONPATH}、PYTHONDONTWRITEBYTECODE=1、HPP_RESULTS_ROOT=${runtimeEnv.HPP_RESULTS_ROOT}；使用 python -m hpp_harness 或快照 scripts/ 下脚本的绝对路径，不尝试从实际工程相对寻找 Harness 脚本。models validate 等需要 --root 的知识校验使用快照根目录。\n所有新任务 --out 显式指定 ${microcodeRuntime.resultsRoot} 下独立任务目录；workspace/... 等兼容路径交由 HPP_RESULTS_ROOT 适配，不能写回原 Harness、快照或默认相邻目录。原仓库的 ../microcode-local-runs/ 历史结果不会自动导入，不能作为本任务验收事实。compiler-environment/environment.json 是模板，本机配置、MCStudio 和许可证不随快照复制；使用实际工程提供的环境配置或在 ${microcodeRuntime.memoryRoot} 下建立本机配置并显式传 --environment。缺工具链、evaluator 或许可证时如实报告阻塞和未验证，不自动安装或宣称通过。保留 HG-001、CE-001、BO-001、MG-033 与真实数值/周期证据要求，不能以静态检查替代真实验收。\n`;
+  }
   if (!existsSync(path.join(pluginDir, '.cursor-plugin/plugin.json'))) {
     const staging = `${pluginDir}.tmp-${chat.id}`;
     rmSync(staging, { recursive: true, force: true });
@@ -195,15 +218,16 @@ function prepareGenericHarness({ info, dataDir, project, chat }) {
       writeFileSync(path.join(staging, 'rules/harness.mdc'), `---\ndescription: Harness 工作流\nalwaysApply: true\n---\n${bridge}\n${absoluteLinks(entry, sourceCopy)}`);
       mkdirSync(path.join(staging, '.cursor-plugin'), { recursive: true });
       writeFileSync(path.join(staging, '.cursor-plugin/plugin.json'), JSON.stringify({
-        name: info.id, version: '1.0.0', description: info.name,
+        name: info.id, version: /^\d+\.\d+\.\d+/.test(info.version) ? info.version : '1.0.0', description: info.name,
         rules: ['./rules/harness.mdc'], skills: info.skills.map(s => `./source/${s}`), agents: info.agents.map(s => `./source/${s}`)
       }, null, 2));
       mkdirSync(path.dirname(pluginDir), { recursive: true }); renameSync(staging, pluginDir);
     } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
   }
   return {
-    snapshot: { ...publicHarness(info), adapterVersion: ADAPTER_VERSION, pluginDir, projectPath: project.path, ...cudaMemory },
+    snapshot: { ...publicHarness(info), adapterVersion: ADAPTER_VERSION, pluginDir, projectPath: project.path, ...cudaMemory, ...microcodeRuntime },
     promptPrefix: `[MaPU Omni 运行配置：${info.name}]\n${bridge}\n[用户本轮请求]\n`,
-    args: ['--plugin-dir', pluginDir, '--add-dir', pluginDir, ...(cudaMemory ? ['--add-dir', cudaMemory.memoryRoot] : [])]
+    env: runtimeEnv,
+    args: ['--plugin-dir', pluginDir, '--add-dir', pluginDir, ...(cudaMemory ? ['--add-dir', cudaMemory.memoryRoot] : []), ...(microcodeRuntime ? ['--add-dir', microcodeRuntime.memoryRoot] : [])]
   };
 }

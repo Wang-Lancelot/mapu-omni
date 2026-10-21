@@ -50,6 +50,7 @@ npm test
 - **Scale · Multi-Lang**：使用现有 Scale 适配器，目录要求与 MPUCPorter 一致。
 - **Scale · Forge**：适用于 `scale_forge`（例如命名为 MPUCOpt）。仅快照根规则、Skills、知识、工具、工作流与文档，不复制原工程的源码、目标代码、状态和运行产物。当前工程需具备自己的 Forge 状态和写入工具；缺少 `state/project_manifest.json` 时应先确定工作流并初始化，不能继承原仓库的项目进度。快照工具只用于只读知识检索，写状态与验收必须使用当前工程部署的工具。
 - **Scale · CUDA**：适用于 `aiKnowledge`（例如命名为 MPUCAgent）。按 `START_HERE.md`、命令索引与知识索引加载 CUDA → SCALE 转译规程。命令属于 playbook，非 shell 命令或宿主原生斜杠命令。仅快照可复用资源及空项目模板；项目配置保存到 `.data/harness-memory/<工作空间ID>/projects/<工作空间ID>/project.yaml`，SPEC、REPORT 与验证产物保留在当前工程任务目录。
+- **MaPU · MicroCode**：适用于 `microcode-harness/microcode`（例如命名为 MicroCode）。按 HPP routing Skill 加载微码开发规则，注册嵌套 Skills，快照版本以 `version.json` 为准。Python 使用快照内的 `lib/`；运行结果通过 `HPP_RESULTS_ROOT` 隔离到 `.data/harness-memory/<工作空间ID>/microcode/results/`。本机环境配置、MCStudio、许可证和历史运行结果不复制；真实编译、数值及周期验收仍需当前环境支持。
 - 「检测 Harness」检查当前条目的目录与资源；搜索按名称筛选。所有条目（包括 MPUCPorter）均可修改名称、类型和路径，也可删除，点击保存后生效；磁盘上的源文件和已有聊天记录会保留。系统不保留内置 Harness，列表可以为空。旧版 MPUCPorter 配置会一次性迁移为普通条目，删除后重启不会重新出现。
 - 已有对话绑定原 Harness。删除条目后需选择其他 Harness 开始新对话；修改类型、路径或资源后不能继续复用旧会话。切换 Harness 会保留输入草稿并开启新对话。
 - 通用快照不包含 `.git`、`node_modules`、`.data`、Python 环境、构建目录或缓存，不支持符号链接。不要将整个工程或个人主目录作为 Harness 目录。

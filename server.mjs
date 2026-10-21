@@ -64,7 +64,7 @@ function run(chat, prompt) {
   chat.status = 'running'; chat.error = null; chat.updatedAt = new Date().toISOString(); chat.model = model;
   if (harnessRun) append(chat, 'harness', `${chat.harness.name} ${chat.harness.version} · ${chat.harness.fingerprint.slice(0, 12)}\n资源来源: ${chat.harness.sourceRoot}\n实际工作目录: ${project.path}\n项目记忆: ${chat.harness.memoryProject || '由 Harness 工作流定义'}`);
   append(chat, 'command', `${cli} ${args.map(a => JSON.stringify(a)).join(' ')}\ncwd: ${project.path}`);
-  const child = spawn(cli, args, { cwd: project.path, env: process.env, shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(cli, args, { cwd: project.path, env: { ...process.env, ...harnessRun?.env }, shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   jobs.set(chat.id, child); publish();
   let buffer = '', resultError = false, spawnError = '';
   function line(text) {
@@ -121,7 +121,7 @@ const server = http.createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 128000) fail('请求过大', 413); }
       const body = JSON.parse(raw || '{}');
       if (route === '/api/harness/check') {
-        if (body.type && !['scale', 'generic', 'forge', 'cuda'].includes(body.type)) fail('Harness 类型无效');
+        if (body.type && !['scale', 'generic', 'forge', 'cuda', 'microcode'].includes(body.type)) fail('Harness 类型无效');
         return json(publicHarness(inspectConfiguredHarness({ id: 'check', name: 'Harness', type: body.type || 'scale', path: body.path }, root)));
       }
       if (route === '/api/projects') {
@@ -140,6 +140,10 @@ const server = http.createServer(async (req, res) => {
         if (!Number.isInteger(fontSize) || fontSize < 12 || fontSize > 20) fail('字体大小应为 12–20 的整数');
         const userName = body.userName ?? db.settings.userName;
         if (typeof userName !== 'string' || !userName.trim() || [...userName.trim()].length > 40) fail('用户名称需为 1–40 个字符');
+        if (body.harnesses !== undefined && body.harnessesBase !== undefined &&
+            JSON.stringify(body.harnessesBase) !== JSON.stringify(db.settings.harnesses)) {
+          fail('Harness 列表已在其他页面或操作中更新，请重新打开设置后再修改 Harness。', 409);
+        }
         const inputHarnesses = body.harnesses ?? db.settings.harnesses;
         if (!Array.isArray(inputHarnesses)) fail('Harness 列表无效');
         const ids = new Set(['none']);
@@ -147,7 +151,7 @@ const server = http.createServer(async (req, res) => {
           if (!h || typeof h.id !== 'string' || !/^[a-z][a-z0-9-]{0,79}$/.test(h.id) || ids.has(h.id)) fail('Harness 标识无效或重复');
           ids.add(h.id);
           if (typeof h.name !== 'string' || !h.name.trim() || [...h.name.trim()].length > 80) fail('Harness 名称需为 1–80 个字符');
-          if (!['generic', 'scale', 'forge', 'cuda'].includes(h.type)) fail('Harness 类型无效');
+          if (!['generic', 'scale', 'forge', 'cuda', 'microcode'].includes(h.type)) fail('Harness 类型无效');
           if (typeof h.path !== 'string') fail('Harness 路径必须是字符串');
           const config = { id: h.id, name: h.name.trim(), type: h.type, path: h.path.trim() };
           if (config.path) config.path = inspectConfiguredHarness(config, root).sourceRoot;

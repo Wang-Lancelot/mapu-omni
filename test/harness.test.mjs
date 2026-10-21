@@ -23,6 +23,25 @@ function createCudaFixture(source) {
  return source;
 }
 
+function createMicrocodeFixture(source) {
+ const files={
+  'AGENTS.md':'# Microcode\nRead [routing](skills/hpp-routing/SKILL.md).',
+  'version.json':JSON.stringify({product:'1.1.3'}),
+  'plugin.json':JSON.stringify({name:'hpp-microcode-plugin',version:'1.1.3'}),
+  'capabilities.json':'{}',
+  'skills/hpp-routing/SKILL.md':'---\nname: hpp-routing\ndescription: Route tasks\n---\nRead ../../references/README.md.',
+  'skills/math/nested/SKILL.md':'---\nname: math-nested\ndescription: Math task\n---\nUse evidence.',
+  'lib/hpp_harness/__init__.py':'# HPP library',
+  'scripts/_bootstrap.py':'# Snapshot root',
+  'references/README.md':'# ISA references',
+  'compiler-environment/environment.json':'{"toolchain":"REPLACE_ME"}',
+  'compiler-environment/environment.local.json':'{"toolchain":"private-local-machine"}',
+  'compiler-environment/runs/output.log':'old result'
+ };
+ for (const [name,content] of Object.entries(files)) { const file=path.join(source,name);mkdirSync(path.dirname(file),{recursive:true});writeFileSync(file,content); }
+ return source;
+}
+
 test('adapter snapshots preserve relative resources, native skills, readonly agents and project isolation',t=>{
  const folder=realpathSync(mkdtempSync(path.join(os.tmpdir(),'mapu-harness-')));t.after(()=>rmSync(folder,{recursive:true,force:true}));
  const source=createHarnessFixture(path.join(folder,'source'));
@@ -139,6 +158,30 @@ test('arbitrary workspaces run selected Harness with actual cwd; configuration c
  assert.ok(cudaPayload.args.at(-1).includes('playbook'));
  assert.ok(cudaPayload.args.includes(cudaRun.harness.memoryRoot));
  assert.equal(JSON.parse(readFileSync(path.join(dataDir,'workspace.json'))).settings.harnesses.at(-1).type,'cuda');
+ const microcodeSource=createMicrocodeFixture(path.join(folder,'microcode'));
+ const microcode={id:'microcode',name:'MicroCode',type:'microcode',path:microcodeSource};
+ assert.equal((await req('harness/check',microcode)).body.version,'1.1.3');
+ assert.equal((await req('harness/check',{...microcode,path:cudaSource})).status,400);
+ assert.equal((await req('settings',{...cudaSettings,harnesses:[...cudaSettings.harnesses,microcode]})).status,200);
+ const staleSave=await req('settings',{...cudaSettings,fontSize:18,harnessesBase:cudaSettings.harnesses,harnesses:[]});
+ assert.equal(staleSave.status,409);
+ assert.match(staleSave.body.error,/重新打开设置/);
+ assert.ok((await req('state')).body.settings.harnesses.some(h=>h.id===microcode.id));
+ const {harnesses:unusedHarnesses,...onlyPreferences}=cudaSettings;
+ assert.equal((await req('settings',{...onlyPreferences,fontSize:18})).status,200);
+ assert.ok((await req('state')).body.settings.harnesses.some(h=>h.id===microcode.id),'preference-only saves keep MicroCode');
+ const microChat=(await req('chats',{projectId:project.id,harnessId:microcode.id})).body;
+ assert.equal(microChat.harness.type,'microcode');
+ await req(`chats/${microChat.id}/send`,{prompt:'inspect microcode task'});
+ const microRun=await done(microChat.id),microPayload=JSON.parse(microRun.messages[1].text);
+ assert.equal(microRun.status,'complete');assert.equal(microPayload.cwd,project.path);
+ assert.equal(microPayload.env.HPP_RESULTS_ROOT,microRun.harness.resultsRoot);
+ assert.equal(microPayload.env.PYTHONPATH,path.join(microRun.harness.pluginDir,'source/lib'));
+ assert.equal(microPayload.env.PYTHONDONTWRITEBYTECODE,'1');
+ await req(`chats/${raw.id}/send`,{prompt:'no env leak'});
+ const rawAgain=JSON.parse((await done(raw.id)).messages.at(-1).text);
+ assert.notEqual(rawAgain.env.HPP_RESULTS_ROOT,microRun.harness.resultsRoot);
+
 
 
 });
@@ -235,4 +278,34 @@ test('CUDA knowledge snapshots isolate project configuration and route playbooks
  assert.match(readFileSync(path.join(a.snapshot.pluginDir,'source/common/cuda2scale/commands/autoTrans.md'),'utf8'),/S2 must pass/);
  rmSync(path.join(source,'START_HERE.md'));
  assert.throws(()=>inspectConfiguredHarness(config,folder),/不是完整的 CUDA Harness/);
+});
+
+
+test('MicroCode snapshots native skills and version while isolating results and local environment', t => {
+ const folder=realpathSync(mkdtempSync(path.join(os.tmpdir(),'mapu-microcode-')));t.after(()=>rmSync(folder,{recursive:true,force:true}));
+ const source=createMicrocodeFixture(path.join(folder,'source'));
+ const config={id:'microcode',name:'MicroCode',type:'microcode',path:source};
+ const info=inspectConfiguredHarness(config,folder);
+ assert.equal(info.version,'1.1.3');assert.equal(info.skills.length,2);
+ assert.ok(info.skills.includes('skills/math/nested'));
+ assert.ok(!info.files.some(f=>f.relative.includes('environment.local.json') || f.relative.startsWith('compiler-environment/runs/')));
+ const make=id=>prepareHarness({info,dataDir:path.join(folder,'data'),project:{id,path:path.join(folder,id)},chat:{id:'c'}});
+ const a=make('a'),b=make('b');
+ assert.notEqual(a.snapshot.resultsRoot,b.snapshot.resultsRoot);
+ assert.equal(a.env.HPP_RESULTS_ROOT,a.snapshot.resultsRoot);
+ assert.ok(a.args.includes(a.snapshot.memoryRoot));assert.ok(existsSync(a.snapshot.resultsRoot));
+ assert.ok(!a.snapshot.resultsRoot.startsWith(a.snapshot.pluginDir));
+ assert.match(a.promptPrefix,/HG-001/);assert.match(a.promptPrefix,/--environment/);
+ const manifest=JSON.parse(readFileSync(path.join(a.snapshot.pluginDir,'.cursor-plugin/plugin.json')));
+ assert.equal(manifest.version,'1.1.3');assert.equal(manifest.skills.length,2);
+ for (const skill of manifest.skills) assert.ok(existsSync(path.join(a.snapshot.pluginDir,skill,'SKILL.md')));
+ assert.equal(readFileSync(path.join(a.snapshot.pluginDir,'source/lib/hpp_harness/__init__.py'),'utf8'),'# HPP library');
+ writeFileSync(path.join(source,'compiler-environment/environment.local.json'),'changed local config');
+ assert.equal(inspectConfiguredHarness(config,folder).fingerprint,info.fingerprint);
+ writeFileSync(path.join(source,'references/README.md'),'new knowledge');
+ assert.notEqual(inspectConfiguredHarness(config,folder).fingerprint,info.fingerprint);
+ writeFileSync(path.join(source,'plugin.json'),'{}');
+ assert.throws(()=>inspectConfiguredHarness(config,folder),/版本不一致/);
+ writeFileSync(path.join(source,'version.json'),'invalid');
+ assert.throws(()=>inspectConfiguredHarness(config,folder),/版本清单无效/);
 });
