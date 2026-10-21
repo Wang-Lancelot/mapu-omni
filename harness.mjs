@@ -39,7 +39,15 @@ function inspectGenericHarness(input, appRoot, type = 'generic') {
       if (!existsSync(path.join(sourceRoot, entry))) problem(`不是完整的 Forge Harness，缺少 ${entry}`);
     }
   }
-  const files = type === 'forge' ? forgeEntries.flatMap(entry => {
+  const cudaEntries = ['AGENTS.md', 'README.md', 'START_HERE.md', 'CONTEXT.md', 'SOURCES.md', 'common', 'scripts', 'docs', 'update', 'projects/_template'];
+  if (type === 'cuda') {
+    for (const entry of ['START_HERE.md', 'common/cuda2scale/commands/INDEX.md', 'common/cuda2scale/skills/SKILL_INDEX.md', 'common/cuda2scale/SCALE_checklist.md', 'projects/_template/project.yaml']) {
+      const location = path.join(sourceRoot, entry);
+      if (!existsSync(location) || !statSync(location).isFile() || !statSync(location).size) problem(`不是完整的 CUDA Harness，缺少或为空 ${entry}`);
+    }
+  }
+  const resourceEntries = type === 'forge' ? forgeEntries : type === 'cuda' ? cudaEntries : null;
+  const files = resourceEntries ? resourceEntries.flatMap(entry => {
     const location = path.join(sourceRoot, entry);
     if (!existsSync(location)) return [];
     if (lstatSync(location).isSymbolicLink()) problem(`Harness 资源包含符号链接：${location}`);
@@ -104,7 +112,7 @@ function absoluteLinks(text, originalDir) {
   });
 }
 export function prepareHarness({ info, dataDir, project, chat }) {
-  if (['generic', 'forge'].includes(info.type)) return prepareGenericHarness({ info, dataDir, project, chat });
+  if (['generic', 'forge', 'cuda'].includes(info.type)) return prepareGenericHarness({ info, dataDir, project, chat });
   const memoryRoot = path.join(dataDir, 'harness-memory', project.id);
   const memoryProject = path.join(memoryRoot, 'projects', project.id);
   const binding = createHash('sha256').update(JSON.stringify([info.sourceRoot, project.path, project.id, info.id, info.name])).digest('hex').slice(0, 16);
@@ -166,6 +174,14 @@ function prepareGenericHarness({ info, dataDir, project, chat }) {
   const sourceCopy = path.join(pluginDir, 'source');
   let bridge = `# ${info.name} / MaPU Omni 运行适配\n实际工程目录：${project.path}\nHarness 原目录：${info.sourceRoot}\n只读资源快照：${sourceCopy}\n每轮任务开始先读取快照中的 AGENTS.md，并按需读取相关资源。执行任务的 cwd 始终为实际工程目录；Harness 中的相对资源路径以快照根目录为准。不得改写 Harness 源目录或快照。用户指令、更高优先级约束及实际工程规则仍适用。工具权限及 Ask / Plan 只读模式继续受 CLI 设置控制。\n`;
   if (info.type === 'forge') bridge += `\nForge 路径与状态适配（优先于下方原始规则）：skills/、knowledge/、workflows/、docs/ 和只读检索工具位于资源快照。state/、source/、target/、intermediate/、evals/、logs/、memory/、tmp/ 属于实际工程 ${project.path}，不得读取 Harness 原仓库的项目状态作为本工程事实。先检查实际工程 state/project_manifest.json；缺失时说明工程尚未初始化，先与用户确定 migration/native 工作流，不得借用原仓库的 manifest 或计划。tools/common.py 等工具以脚本位置推导工程根目录，快照中的工具只能执行只读知识检索；更新状态、初始化、验收和写证据必须使用实际工程中已部署且根目录正确的 Forge 工具，缺失时明确说明，不能向快照写入或假称完成。knowledge/project/ 仅作为原仓库参考，不代表当前工程证据。\n`;
+  const cudaMemory = info.type === 'cuda' ? {
+    memoryRoot: path.join(dataDir, 'harness-memory', project.id),
+    memoryProject: path.join(dataDir, 'harness-memory', project.id, 'projects', project.id)
+  } : null;
+  if (cudaMemory) {
+    mkdirSync(cudaMemory.memoryRoot, { recursive: true });
+    bridge += `\nCUDA 知识库路径适配（优先于原规则的项目配置路径）：首次先读 ${path.join(sourceCopy, 'START_HERE.md')}。common/cuda2scale/、scripts/、docs/、update/ 及模板均以只读快照为根；按 commands/INDEX.md 和 skills/SKILL_INDEX.md 路由，命令是需全文阅读的 playbook，并非 shell 命令或已注册的宿主斜杠命令。projects/<id>/project.yaml 映射为 ${path.join(cudaMemory.memoryProject, 'project.yaml')}，当前项目 ID 为 ${project.id}，code_root 必须是 ${project.path}。配置缺失时可按快照 projects/_template/project.yaml 在上述独立记忆目录创建当前项目配置；只填写已知事实，构建、运行、模式和验收契约缺失时按原协议澄清，不能复制其他项目的配置或猜测。SPEC.yaml、REPORT.md、style/native 副本及 validation/ 等任务产物只写入实际工程下的用户任务目录，不写入知识库或快照。保留 N/C2/C4 确认、S2 数值 PASS 后进入 S3、缺条件标记 NOT_RUN 等原始约束。\n`;
+  }
   if (!existsSync(path.join(pluginDir, '.cursor-plugin/plugin.json'))) {
     const staging = `${pluginDir}.tmp-${chat.id}`;
     rmSync(staging, { recursive: true, force: true });
@@ -186,8 +202,8 @@ function prepareGenericHarness({ info, dataDir, project, chat }) {
     } catch (error) { rmSync(staging, { recursive: true, force: true }); throw error; }
   }
   return {
-    snapshot: { ...publicHarness(info), adapterVersion: ADAPTER_VERSION, pluginDir, projectPath: project.path },
+    snapshot: { ...publicHarness(info), adapterVersion: ADAPTER_VERSION, pluginDir, projectPath: project.path, ...cudaMemory },
     promptPrefix: `[MaPU Omni 运行配置：${info.name}]\n${bridge}\n[用户本轮请求]\n`,
-    args: ['--plugin-dir', pluginDir, '--add-dir', pluginDir]
+    args: ['--plugin-dir', pluginDir, '--add-dir', pluginDir, ...(cudaMemory ? ['--add-dir', cudaMemory.memoryRoot] : [])]
   };
 }

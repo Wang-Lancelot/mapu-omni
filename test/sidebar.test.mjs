@@ -41,7 +41,7 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   class EventSource { constructor() { stream = this; } }
   const run = new (Object.getPrototypeOf(async function(){}).constructor)(
     'document','localStorage','fetch','EventSource','window','setTimeout','clearTimeout',
-    readFileSync(new URL('../public/app.js', import.meta.url), 'utf8') + '\nreturn {selectChat, showHarnesses: () => {harnessDrafts=catalog().map(h=>({...h}));renderHarnessCards();}};'
+    readFileSync(new URL('../public/app.js', import.meta.url), 'utf8') + '\nreturn {selectChat, showHarnesses: (items=catalog()) => {harnessDrafts=items.map(h=>({...h}));renderHarnessCards();}};'
   );
   const ui = await run(document,localStorage,fetch,EventSource,{confirm:()=>true,innerWidth:1280,addEventListener(){}},()=>0,()=>{});
   assert.match(node('#projects').innerHTML,/Conversation a/);
@@ -71,6 +71,9 @@ test('deleting from either sidebar list updates both and ignores older snapshots
   for (const selector of ['#projects','#chats']) assert.doesNotMatch(node(selector).innerHTML,/Conversation [ab]/);
   assert.equal(node('#chat-count').textContent,0);
   assert.equal(requests.filter(r => r === '/api/state').length,1,'deletion does not depend on a follow-up fetch');
+  ui.showHarnesses([{id:'mpucagent',name:'MPUCAgent',type:'cuda',path:'/knowledge'}]);
+  assert.match(node('#harness-catalog').innerHTML,/<option value="cuda" selected>Scale · CUDA<\/option>/);
+  assert.match(node('#harness-catalog').innerHTML,/<option value="forge" >Scale · Forge<\/option>/);
   ui.showHarnesses();
   assert.match(node('#harness-catalog').innerHTML,/data-harness-field="name"/);
   assert.match(node('#harness-catalog').innerHTML,/data-remove-harness="mpucporter"/);

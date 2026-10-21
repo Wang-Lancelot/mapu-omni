@@ -8,6 +8,21 @@ import { once } from 'node:events';
 import { inspectHarness, inspectConfiguredHarness, prepareHarness, harnessCatalog, migrateHarnessSettings } from '../harness.mjs';
 import { createHarnessFixture } from './harness-fixture.mjs';
 
+function createCudaFixture(source) {
+ const files={
+  'AGENTS.md':'# CUDA rules\nRead [start](START_HERE.md).',
+  'START_HERE.md':'# Start\nRead projects/<id>/project.yaml.',
+  'common/cuda2scale/commands/INDEX.md':'# Commands\nRead autoTrans.md as a playbook.',
+  'common/cuda2scale/commands/autoTrans.md':'# Translate\nS2 must pass before S3.',
+  'common/cuda2scale/skills/SKILL_INDEX.md':'# Knowledge index',
+  'common/cuda2scale/SCALE_checklist.md':'# Checklist',
+  'projects/_template/project.yaml':'id: REPLACE_ME\ncode_root: ""\n',
+  'projects/other/project.yaml':'id: other\ncode_root: /unrelated\n'
+ };
+ for (const [name,content] of Object.entries(files)) {const dest=path.join(source,name);mkdirSync(path.dirname(dest),{recursive:true});writeFileSync(dest,content);}
+ return source;
+}
+
 test('adapter snapshots preserve relative resources, native skills, readonly agents and project isolation',t=>{
  const folder=realpathSync(mkdtempSync(path.join(os.tmpdir(),'mapu-harness-')));t.after(()=>rmSync(folder,{recursive:true,force:true}));
  const source=createHarnessFixture(path.join(folder,'source'));
@@ -110,6 +125,21 @@ test('arbitrary workspaces run selected Harness with actual cwd; configuration c
  assert.equal((await req(`chats/${customChat.id}/send`,{prompt:'deleted'})).status,400);
  assert.ok((await req('state')).body.chats.some(c=>c.id===customChat.id),'deleting a Harness preserves history');
  assert.equal((await req('chats',{projectId:project.id,harnessId:custom[0].id})).status,400);
+ const cudaSource=createCudaFixture(path.join(folder,'cuda'));
+ const cuda={id:'mpucagent',name:'MPUCAgent',type:'cuda',path:cudaSource};
+ assert.equal((await req('harness/check',cuda)).status,200);
+ assert.equal((await req('harness/check',{...cuda,path:folder})).status,400);
+ const cudaSettings={...customSettings,harnesses:[...custom.slice(1),cuda]};
+ assert.equal((await req('settings',cudaSettings)).status,200);
+ const cudaChat=(await req('chats',{projectId:project.id,harnessId:cuda.id})).body;
+ assert.equal(cudaChat.harness.type,'cuda');assert.equal(cudaChat.harness.name,'MPUCAgent');
+ await req(`chats/${cudaChat.id}/send`,{prompt:'analyze CUDA module'});
+ const cudaRun=await done(cudaChat.id),cudaPayload=JSON.parse(cudaRun.messages[1].text);
+ assert.equal(cudaRun.status,'complete');assert.equal(cudaPayload.cwd,project.path);
+ assert.ok(cudaPayload.args.at(-1).includes('playbook'));
+ assert.ok(cudaPayload.args.includes(cudaRun.harness.memoryRoot));
+ assert.equal(JSON.parse(readFileSync(path.join(dataDir,'workspace.json'))).settings.harnesses.at(-1).type,'cuda');
+
 
 });
 
@@ -177,4 +207,32 @@ test('legacy MPUCPorter migrates once and all Harnesses can remain deleted', () 
  const fresh={};migrateHarnessSettings(fresh);assert.deepEqual(harnessCatalog(fresh),[]);
  const duplicate={scaleAgentPath:'/old',harnesses:[{id:'mpucporter',name:'Edited',type:'generic',path:'/new'}]};
  migrateHarnessSettings(duplicate);assert.equal(duplicate.harnesses.length,1);assert.equal(duplicate.harnesses[0].name,'Edited');
+});
+
+
+test('CUDA knowledge snapshots isolate project configuration and route playbooks', t => {
+ const folder=realpathSync(mkdtempSync(path.join(os.tmpdir(),'mapu-cuda-')));t.after(()=>rmSync(folder,{recursive:true,force:true}));
+ const source=createCudaFixture(path.join(folder,'source'));
+ symlinkSync('/missing',path.join(source,'projects/other/build-link'));
+ const config={id:'mpucagent',name:'MPUCAgent',type:'cuda',path:source};
+ const info=inspectConfiguredHarness(config,folder);
+ assert.ok(info.files.some(f=>f.relative==='projects/_template/project.yaml'));
+ assert.ok(!info.files.some(f=>f.relative.startsWith('projects/other/')));
+ const make=id=>prepareHarness({info,dataDir:path.join(folder,'data'),project:{id,path:path.join(folder,id)},chat:{id:'c'}});
+ const a=make('a'),b=make('b');
+ assert.notEqual(a.snapshot.memoryProject,b.snapshot.memoryProject);
+ assert.ok(a.args.includes(a.snapshot.memoryRoot));
+ assert.match(a.promptPrefix,/并非 shell 命令/);assert.match(a.promptPrefix,/NOT_RUN/);
+ assert.ok(a.promptPrefix.includes(path.join(a.snapshot.memoryProject,'project.yaml')));
+ const manifest=JSON.parse(readFileSync(path.join(a.snapshot.pluginDir,'.cursor-plugin/plugin.json')));
+ assert.equal(manifest.name,'mpucagent');
+ const rules=readFileSync(path.join(a.snapshot.pluginDir,manifest.rules[0]),'utf8');
+ assert.ok(rules.includes(path.join(a.snapshot.pluginDir,'source/START_HERE.md')));
+ writeFileSync(path.join(source,'projects/other/project.yaml'),'changed');
+ assert.equal(inspectConfiguredHarness(config,folder).fingerprint,info.fingerprint);
+ writeFileSync(path.join(source,'common/cuda2scale/commands/autoTrans.md'),'changed');
+ assert.notEqual(inspectConfiguredHarness(config,folder).fingerprint,info.fingerprint);
+ assert.match(readFileSync(path.join(a.snapshot.pluginDir,'source/common/cuda2scale/commands/autoTrans.md'),'utf8'),/S2 must pass/);
+ rmSync(path.join(source,'START_HERE.md'));
+ assert.throws(()=>inspectConfiguredHarness(config,folder),/不是完整的 CUDA Harness/);
 });

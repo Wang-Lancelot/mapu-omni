@@ -121,7 +121,7 @@ const server = http.createServer(async (req, res) => {
       let raw = ''; for await (const chunk of req) { raw += chunk; if (raw.length > 128000) fail('请求过大', 413); }
       const body = JSON.parse(raw || '{}');
       if (route === '/api/harness/check') {
-        if (body.type && !['scale', 'generic', 'forge'].includes(body.type)) fail('Harness 类型无效');
+        if (body.type && !['scale', 'generic', 'forge', 'cuda'].includes(body.type)) fail('Harness 类型无效');
         return json(publicHarness(inspectConfiguredHarness({ id: 'check', name: 'Harness', type: body.type || 'scale', path: body.path }, root)));
       }
       if (route === '/api/projects') {
@@ -147,7 +147,7 @@ const server = http.createServer(async (req, res) => {
           if (!h || typeof h.id !== 'string' || !/^[a-z][a-z0-9-]{0,79}$/.test(h.id) || ids.has(h.id)) fail('Harness 标识无效或重复');
           ids.add(h.id);
           if (typeof h.name !== 'string' || !h.name.trim() || [...h.name.trim()].length > 80) fail('Harness 名称需为 1–80 个字符');
-          if (!['generic', 'scale', 'forge'].includes(h.type)) fail('Harness 类型无效');
+          if (!['generic', 'scale', 'forge', 'cuda'].includes(h.type)) fail('Harness 类型无效');
           if (typeof h.path !== 'string') fail('Harness 路径必须是字符串');
           const config = { id: h.id, name: h.name.trim(), type: h.type, path: h.path.trim() };
           if (config.path) config.path = inspectConfiguredHarness(config, root).sourceRoot;

@@ -125,9 +125,9 @@ $('#harness-search').oninput = e => {
 function renderHarnessCards() {
   $('#harness-catalog').innerHTML = harnessDrafts.map(h => `<article class="harness-settings" data-harness-id="${escape(h.id)}" data-harness-name="${escape(h.name)}">
     <div class="harness-card-heading"><h3 data-card-title>${escape(h.name)}</h3><button type="button" class="text-button remove-harness" data-remove-harness="${escape(h.id)}" aria-label="删除 ${escape(h.name)}">删除</button></div>
-    <label>名称<input data-harness-field="name" value="${escape(h.name)}" maxlength="80" placeholder="例如：并行代码改写"></label><label>类型<select data-harness-field="type"><option value="generic" ${h.type === 'generic' ? 'selected' : ''}>通用 · AGENTS.md</option><option value="scale" ${h.type === 'scale' ? 'selected' : ''}>Scale · Multi-Lang</option><option value="forge" ${h.type === 'forge' ? 'selected' : ''}>Scale · Forge</option></select></label>
+    <label>名称<input data-harness-field="name" value="${escape(h.name)}" maxlength="80" placeholder="例如：并行代码改写"></label><label>类型<select data-harness-field="type"><option value="generic" ${h.type === 'generic' ? 'selected' : ''}>通用 · AGENTS.md</option><option value="scale" ${h.type === 'scale' ? 'selected' : ''}>Scale · Multi-Lang</option><option value="forge" ${h.type === 'forge' ? 'selected' : ''}>Scale · Forge</option><option value="cuda" ${h.type === 'cuda' ? 'selected' : ''}>Scale · CUDA</option></select></label>
     <label>本地目录<input data-harness-field="path" value="${escape(h.path)}" placeholder="/绝对路径/my-harness 或 ../my-harness" autocomplete="off"></label>
-    <p data-harness-help>${h.type === 'forge' ? '选择 SCALE_Forge 根目录；仅加载规则、Skills、知识、工具与工作流，不打包原工程状态及运行产物。' : h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。'}</p>
+    <p data-harness-help>${h.type === 'cuda' ? '选择 aiKnowledge 根目录，需包含 START_HERE.md 与 common/cuda2scale/；项目配置独立保存，任务产物写入当前工程。' : h.type === 'forge' ? '选择 SCALE_Forge 根目录；仅加载规则、Skills、知识、工具与工作流，不打包原工程状态及运行产物。' : h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。'}</p>
     <button type="button" class="text-button" data-check-harness="${escape(h.id)}">检测 Harness</button><div class="harness-status" role="status">尚未检测</div>
   </article>`).join('');
   $('#harness-search').oninput({target:$('#harness-search')});
@@ -150,7 +150,7 @@ $('#harness-catalog').addEventListener('input', e => {
   const h = harnessDrafts.find(h => h.id === card.dataset.harnessId); h[field] = e.target.value;
   if (field === 'name') { card.dataset.harnessName = h.name; card.querySelector('[data-card-title]').textContent = h.name || '新 Harness'; card.querySelector('[data-remove-harness]')?.setAttribute('aria-label', `删除 ${h.name || '新 Harness'}`); }
   card.querySelector('.harness-status').textContent = '配置已修改，请重新检测或保存';
-  if (field === 'type') card.querySelector('[data-harness-help]').textContent = h.type === 'forge' ? '选择 SCALE_Forge 根目录；仅加载规则、Skills、知识、工具与工作流，不打包原工程状态及运行产物。' : h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。';
+  if (field === 'type') card.querySelector('[data-harness-help]').textContent = h.type === 'cuda' ? '选择 aiKnowledge 根目录，需包含 START_HERE.md 与 common/cuda2scale/；项目配置独立保存，任务产物写入当前工程。' : h.type === 'forge' ? '选择 SCALE_Forge 根目录；仅加载规则、Skills、知识、工具与工作流，不打包原工程状态及运行产物。' : h.type === 'scale' ? '请选择包含 AGENTS.md 与 scale-agent 文件夹的根目录。' : '根目录需包含 AGENTS.md。可附带 skills/、agents/ 及其他资源文件；请使用专用 Harness 目录。';
 });
 $('#harness-catalog').addEventListener('click', async e => {
   const remove = e.target.closest('[data-remove-harness]');
