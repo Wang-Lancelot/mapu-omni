@@ -1,5 +1,7 @@
 # MaPU Omni · 码炉
 
+当前版本：**v0.1.0**。版本变更见 [CHANGELOG.md](CHANGELOG.md)。
+
 面向 MaPU Scale 编程的本地网页版 Agent 工作空间，中文名「码炉」。通过专用 Harness 承载代码转码、代码优化和微码改写等工作流。浏览器提交 prompt，Node.js 后端在所选项目目录启动真实 Cursor CLI 子进程，实时展示回复及终端日志。
 
 ## 启动
