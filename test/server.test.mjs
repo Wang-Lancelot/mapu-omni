@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { once } from 'node:events';
@@ -10,7 +10,8 @@ const dataDir = mkdtempSync(path.join(os.tmpdir(),'mapu-test-'));
 const port = 14317;
 let server;
 async function start() {
- server = spawn(process.execPath, ['server.mjs'], {cwd:root,env:{...process.env,PORT:String(port),DATA_DIR:dataDir,CURSOR_CLI:path.join(root,'test/fake-cursor.mjs')},stdio:['ignore','pipe','pipe']});
+ mkdirSync(dataDir,{recursive:true});
+ server = spawn(process.execPath, ['server.mjs'], {cwd:root,env:{...process.env,PORT:String(port),DATA_DIR:dataDir,CURSOR_CLI:path.join(root,'test/fake-cursor.mjs'),CODEX_CLI:path.join(root,'test/fake-codex.mjs')},stdio:['ignore','pipe','pipe']});
  await Promise.race([once(server.stdout,'data'),once(server,'exit').then(([code])=>{throw new Error(`Server failed ${code}`);})]);
 }
 async function request(route, body, extra={}) {
@@ -31,7 +32,7 @@ test('project, CLI execution, model, resume, cancellation, persistence and origi
  assert.equal((await request('projects',{path:'/nonexistent-maputest'})).status,400);
  const project=(await request('projects',{path:os.tmpdir(),name:'Integration'})).body;
  assert.equal((await request('projects',{path:os.tmpdir()})).status,400);
- assert.equal((await request('settings',{backend:'codex',model:'auto',mode:'agent'})).status,400);
+ assert.equal((await request('settings',{backend:'invalid',model:'auto',mode:'agent'})).status,400);
  assert.equal((await request('settings',{backend:'cursor',model:'test-model',mode:'ask',force:false})).status,200);
  const chat=(await request('chats',{projectId:project.id})).body;
  const prompt='hello; $(touch /tmp/mapu-should-never-run)';
@@ -85,4 +86,41 @@ test('project, CLI execution, model, resume, cancellation, persistence and origi
  assert.equal((await request(`projects/${initial.projects[0].id}/delete`,{})).status,200);
  assert.equal((await request('state')).body.projects.length,0);
  assert.equal((await request('projects',{path:os.tmpdir(),name:'Re-add'})).status,200);
+});
+
+test('Codex backend supports status, policies, JSON events, resume, failure and cancellation',async t=>{
+ await start();
+ t.after(async()=>{server.kill('SIGTERM');await once(server,'exit');rmSync(dataDir,{recursive:true,force:true});});
+ const initial=(await request('state')).body;
+ const project=initial.projects[0];
+ assert.equal((await request('settings',{...initial.settings,backend:'codex',model:'auto',mode:'agent',force:true})).status,200);
+ const cli=(await request('cli?backend=codex')).body;
+ assert.equal(cli.backend,'codex');assert.equal(cli.authenticated,true);
+ assert.equal((await request('cli?backend=invalid')).status,400);
+ const chat=(await request('chats',{projectId:project.id})).body;
+ assert.equal(chat.backend,'codex');
+ await request(`chats/${chat.id}/send`,{prompt:'hello; $(never execute)'});
+ let done=await complete(chat.id);
+ assert.equal(done.status,'complete');assert.equal(done.sessionId,'codex-test-session');
+ let payload=JSON.parse(done.messages.at(-1).text);
+ assert.equal(payload.cwd,project.path);assert.equal(payload.args.at(-1),'hello; $(never execute)');
+ assert.ok(payload.args.includes('workspace-write'));assert.ok(payload.args.includes('--json'));assert.ok(!payload.args.includes('--model'));
+ assert.deepEqual(done.messages.at(-1).usage,{input_tokens:10,output_tokens:5});
+ await request('settings',{backend:'codex',model:'test-codex-model',mode:'plan',force:true});
+ await request(`chats/${chat.id}/send`,{prompt:'plan task'});
+ done=await complete(chat.id);payload=JSON.parse(done.messages.at(-1).text);
+ assert.ok(payload.args.includes('resume'));assert.ok(payload.args.includes('codex-test-session'));assert.ok(payload.args.includes('read-only'));
+ assert.equal(payload.args[payload.args.indexOf('--model')+1],'test-codex-model');assert.match(payload.args.at(-1),/只分析并提出计划/);
+ await request('settings',{backend:'codex',model:'auto',mode:'agent',force:false});
+ await request(`chats/${chat.id}/send`,{prompt:'readonly'});
+ done=await complete(chat.id);assert.ok(JSON.parse(done.messages.at(-1).text).args.includes('read-only'));
+ await request(`chats/${chat.id}/send`,{prompt:'fail'});done=await complete(chat.id);
+ assert.equal(done.status,'error');assert.equal(done.error,'Test failure');
+ await request(`chats/${chat.id}/send`,{prompt:'wait'});
+ await request(`chats/${chat.id}/stop`,{});assert.equal((await complete(chat.id)).status,'cancelled');
+ await request('settings',{backend:'cursor',model:'auto',mode:'agent'});
+ assert.equal((await request(`chats/${chat.id}/send`,{prompt:'wrong backend'})).status,409);
+ server.kill('SIGTERM');await once(server,'exit');await start();
+ done=(await request('state')).body.chats.find(c=>c.id===chat.id);
+ assert.equal(done.backend,'codex');assert.equal(done.sessionId,'codex-test-session');
 });

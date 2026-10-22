@@ -2,6 +2,8 @@ const $ = s => document.querySelector(s);
 const escape = text => String(text ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state, selectedProject = localStorage.getItem('project'), selectedChat = localStorage.getItem('chat'), cliInfo, signature = '', toastTimer, sending = false;
 const draftHarnesses = JSON.parse(localStorage.getItem('draftHarnesses') || '{}');
+const backendName = backend => backend === 'codex' ? 'Codex CLI' : 'Cursor CLI';
+let cliRequest = 0;
 let harnessDrafts = [], harnessDraftBase = [], checkingHarnesses = new Set();
 function catalog() { return state.settings.harnesses || []; }
 function harnessName(id, chat) { return chat?.harness?.name || catalog().find(h => h.id === id)?.name || '已删除的 Harness'; }
@@ -52,6 +54,8 @@ function render() {
   $('#project-name').textContent = project?.name || '工作空间';
   $('#chat-title').textContent = chat?.title || '新对话';
   $('#composer-project').textContent = project?.name || '选择项目';
+  $('#backend-label').textContent = backendName(chat?.backend || state.settings.backend);
+  $('#execution-backend').textContent = backendName(chat?.backend || state.settings.backend);
   $('#model-label').textContent = state.settings.model === 'auto' ? 'Auto' : state.settings.model;
   $('#mode').value = state.settings.mode;
   const availableHarnesses = catalog();
@@ -83,20 +87,27 @@ function render() {
   $('#terminal-meta').textContent = `${project?.path || ''}${chat ? ` · ${chat.status}` : ''}`;
   remember();
 }
-async function refreshCli() {
+async function refreshCli(backend = state.settings.backend || 'cursor') {
+  const requestId = ++cliRequest;
   $('#cli-status').textContent = '正在检测 CLI 和可用模型…';
+  $('#login-command').textContent = backend === 'codex' ? 'codex login' : 'agent login';
   try {
-    cliInfo = await api('cli');
-    $('#cli-status').textContent = cliInfo.authenticated ? (cliInfo.models.length ? '● Cursor CLI 已登录 · 模型列表已加载' : '● Cursor CLI 已登录\n模型列表暂不可用，可刷新或填写自定义模型 ID。') : '○ Cursor CLI 未登录或状态检测失败 · 请展开详情查看';
+    const info = await api(`cli?backend=${backend}`);
+    if (requestId !== cliRequest) return;
+    cliInfo = {...info, backend};
+    $('#cli-status').textContent = cliInfo.authenticated ? `● ${backendName(backend)} 已登录` : `○ ${backendName(backend)} 未登录或状态检测失败 · 请展开详情查看`;
     $('#cli-details').textContent = `${cliInfo.executable}\n\n${cliInfo.status}\n\n${cliInfo.modelsOutput}`;
-    populateModels();
-    $('#connection-notice').hidden = cliInfo.authenticated;
-    if (!cliInfo.authenticated) $('#connection-notice').innerHTML = '<span>Cursor 尚未登录。在本机终端运行 <code>agent login</code> 后即可开始。</span><button id="notice-settings">查看设置 ↗</button>';
-  } catch (e) { $('#cli-status').textContent = `检测失败：${e.message}`; toast(e.message); }
+    populateModels(backend, backend === state.settings.backend ? state.settings.model : 'auto');
+    updateConnectionNotice();
+  } catch (e) { if (requestId === cliRequest) { $('#cli-status').textContent = `检测失败：${e.message}`; toast(e.message); } }
 }
-function populateModels() {
-  const model = state.settings.model;
-  const list = [{id:'auto',name:'Auto · Cursor 自动选择'}, ...(cliInfo?.models || []).filter(m => m.id !== 'auto')];
+function updateConnectionNotice() {
+  if (!cliInfo || cliInfo.backend !== (state.settings.backend || 'cursor')) return;
+  $('#connection-notice').hidden = cliInfo.authenticated;
+  if (!cliInfo.authenticated) $('#connection-notice').innerHTML = `<span>${backendName(cliInfo.backend)} 尚未登录。在本机终端运行 <code>${cliInfo.backend === 'codex' ? 'codex login' : 'agent login'}</code> 后即可开始。</span><button>查看设置 ↗</button>`;
+}
+function populateModels(backend = state.settings.backend || 'cursor', model = state.settings.model) {
+  const list = [{id:'auto',name:backend === 'codex' ? 'Auto · Codex CLI 默认模型' : 'Auto · Cursor 自动选择'}, ...(cliInfo?.backend === backend ? cliInfo.models : []).filter(m => m.id !== 'auto')];
   if (!list.some(m => m.id === model)) list.push({id:model,name:`${model} · 当前模型`});
   $('#models').innerHTML = list.map(m => `<option value="${escape(m.id)}">${escape(m.name)} (${escape(m.id)})</option>`).join('');
   $('#models').value = model;
@@ -143,8 +154,8 @@ function openSettings(section = 'general') {
   selectSettingsTab(section); $('#harness-search').value = '';
   harnessDraftBase = catalog().map(h => ({...h}));
   harnessDrafts = harnessDraftBase.map(h => ({...h})); renderHarnessCards();
-  const f = $('#settings-form'); f.elements.userName.value = state.settings.userName || 'Local developer'; f.elements.backend.value = 'cursor'; f.elements.mode.value = state.settings.mode; f.elements.force.checked = state.settings.force; f.elements.customModel.value = ''; f.elements.fontSize.value = state.settings.fontSize || 14; f.elements.contentWidth.value = state.settings.contentWidth ?? 960;
-  populateModels(); $('#settings-dialog').showModal();
+  const f = $('#settings-form'); f.elements.userName.value = state.settings.userName || 'Local developer'; f.elements.backend.value = state.settings.backend || 'cursor'; f.elements.mode.value = state.settings.mode; f.elements.force.checked = state.settings.force; f.elements.customModel.value = ''; f.elements.fontSize.value = state.settings.fontSize || 14; f.elements.contentWidth.value = state.settings.contentWidth ?? 960;
+  populateModels(); $('#settings-dialog').showModal(); refreshCli();
 }
 $('#add-harness').onclick = () => {
   const h = {id:`h-${crypto.randomUUID()}`, name:'新 Harness', type:'generic', path:''};
@@ -260,13 +271,19 @@ for (const button of document.querySelectorAll('[data-close]')) button.onclick =
 $('#project-form').onsubmit = async e => { e.preventDefault(); try { const form = new FormData(e.target); const project = await api('projects', Object.fromEntries(form)); applyState(await api('state')); selectProject(project.id); $('#project-dialog').close(); e.target.reset(); toast('项目已添加'); } catch (error) { toast(error.message); } };
 $('#settings-button').onclick = () => openSettings(); $('#model-button').onclick = () => openSettings('models');
 $('#connection-notice').onclick = e => { if (e.target.closest('button')) openSettings(); };
-$('#refresh-cli').onclick = refreshCli;
+$('#refresh-cli').onclick = () => refreshCli($('#settings-form').elements.backend.value);
+$('#settings-form').addEventListener('change', e => {
+  if (e.target.name !== 'backend') return;
+  $('#settings-form').elements.customModel.value = '';
+  populateModels(e.target.value, 'auto');
+  refreshCli(e.target.value);
+});
 $('#settings-form').onsubmit = async e => {
   e.preventDefault(); const form = e.target;
   try {
     const harnessChanges = JSON.stringify(harnessDrafts) === JSON.stringify(harnessDraftBase) ? {} : {harnesses:harnessDrafts, harnessesBase:harnessDraftBase};
     await updateSettings({ backend:form.elements.backend.value, model:form.elements.customModel.value.trim() || form.elements.model.value, mode:form.elements.mode.value, force:form.elements.force.checked, fontSize:Number(form.elements.fontSize.value), contentWidth:Number(form.elements.contentWidth.value), userName:form.elements.userName.value.trim(), ...harnessChanges });
-    applyState(await api('state')); $('#settings-dialog').close(); toast('设置已保存');
+    applyState(await api('state')); $('#settings-dialog').close(); refreshCli(); toast('设置已保存；切换后端后请新建对话');
   } catch(error) { toast(error.message); }
 
 };
@@ -291,6 +308,6 @@ try {
   const events = new EventSource('/api/events');
   events.onmessage = e => { applyState(JSON.parse(e.data)); };
   events.onerror = () => { $('#connection-notice').hidden = false; $('#connection-notice').textContent = '与本地服务的连接中断，正在自动重连…'; };
-  events.onopen = () => { if (cliInfo?.authenticated) $('#connection-notice').hidden = true; else if (cliInfo) $('#connection-notice').innerHTML = '<span>Cursor 尚未登录。在本机终端运行 <code>agent login</code> 后即可开始。</span><button>查看设置 ↗</button>'; };
+  events.onopen = updateConnectionNotice;
   refreshCli();
 } catch(error) { toast(`无法连接本地服务：${error.message}`); }

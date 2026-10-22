@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { codexExecutable, codexModels, codexArgs, applyCodexEvent } from './codex.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -21,7 +22,7 @@ db.settings.fontSize ??= 14;
 db.settings.contentWidth ??= 960;
 db.settings.userName ??= 'Local developer';
 const migratedHarnesses = migrateHarnessSettings(db.settings);
-for (const chat of db.chats) chat.harnessId ??= 'none';
+for (const chat of db.chats) { chat.harnessId ??= 'none'; chat.backend ??= 'cursor'; }
 db.revision ??= 0;
 for (const chat of db.chats) if (chat.status === 'running') { chat.status = 'interrupted'; chat.error = '服务器重启，任务已中断。'; }
 const jobs = new Map(), clients = new Set();
@@ -29,9 +30,9 @@ function save() { writeFileSync(dbPath + '.tmp', JSON.stringify(db, null, 2), { 
 if (migratedHarnesses) save();
 function publish() { db.revision++; save(); for (const c of clients) c.write(`data: ${JSON.stringify(db)}\n\n`); }
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
-function capture(args) {
+function capture(args, executable = cli) {
   return new Promise(resolve => {
-    const child = spawn(cli, args, { env: process.env, shell: false }); let output = ''; let finished = false;
+    const child = spawn(executable, args, { env: process.env, shell: false }); let output = ''; let finished = false;
     const done = code => { if (finished) return; finished = true; clearTimeout(timer); resolve({ code, output: output.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').trim() }); };
     const timer = setTimeout(() => { child.kill('SIGTERM'); done(1); }, 20000);
     child.stdout.on('data', d => output += d); child.stderr.on('data', d => output += d);
@@ -45,27 +46,34 @@ function run(chat, prompt) {
   if (!project || !existsSync(project.path)) fail('项目目录不存在');
   if (jobs.has(chat.id)) fail('此对话仍在执行中', 409);
   const { model, mode, force } = db.settings;
-  const args = ['--print', '--trust', '--output-format', 'stream-json', '--model', model];
+  const backend = chat.backend || 'cursor';
+  if (backend !== db.settings.backend) fail('请新建对话以使用所选后端，或在设置中切回此对话的后端', 409);
+  const executable = backend === 'codex' ? codexExecutable : cli;
+  let args = ['--print', '--trust', '--output-format', 'stream-json', '--model', model];
   let executionPrompt = prompt, harnessRun;
   if (chat.harnessId !== 'none') {
     const info = inspectConfiguredHarness(harnessCatalog(db.settings).find(h => h.id === chat.harnessId), root);
     if (chat.sessionId && chat.harness?.adapterVersion !== ADAPTER_VERSION) fail(`${info.name} 适配器版本已更新，请新建对话`, 409);
     if (chat.harness && (chat.harness.fingerprint !== info.fingerprint || chat.harness.sourceRoot !== info.sourceRoot || (chat.harness.type || 'scale') !== info.type)) fail(`${info.name} 路径或资源版本已变化，请新建对话以加载新配置`, 409);
-    harnessRun = prepareHarness({ info, dataDir, project, chat });
+    harnessRun = prepareHarness({ info, dataDir, project, chat, backend });
     executionPrompt = harnessRun.promptPrefix + prompt; args.push(...harnessRun.args);
   }
-  if (mode !== 'agent') args.push('--mode', mode);
-  if (force) args.push('--force');
-  if (chat.sessionId) args.push('--resume', chat.sessionId);
-  args.push('--', executionPrompt);
+  if (backend === 'codex') {
+    args = codexArgs({ model, mode, force, sessionId: chat.sessionId, prompt: executionPrompt, harnessRun });
+  } else {
+    if (mode !== 'agent') args.push('--mode', mode);
+    if (force) args.push('--force');
+    if (chat.sessionId) args.push('--resume', chat.sessionId);
+    args.push('--', executionPrompt);
+  }
   const runLogStart = chat.logs.length;
-  const reply = { id: randomUUID(), role: 'assistant', text: '', model, actualModel: null, harnessId: chat.harnessId, harnessName: harnessRun?.snapshot.name };
+  const reply = { id: randomUUID(), role: 'assistant', text: '', backend, model, actualModel: null, harnessId: chat.harnessId, harnessName: harnessRun?.snapshot.name };
   if (harnessRun) chat.harness = harnessRun.snapshot;
   chat.messages.push({ id: randomUUID(), role: 'user', text: prompt }, reply);
   chat.status = 'running'; chat.error = null; chat.updatedAt = new Date().toISOString(); chat.model = model;
   if (harnessRun) append(chat, 'harness', `${chat.harness.name} ${chat.harness.version} · ${chat.harness.fingerprint.slice(0, 12)}\n资源来源: ${chat.harness.sourceRoot}\n实际工作目录: ${project.path}\n项目记忆: ${chat.harness.memoryProject || '由 Harness 工作流定义'}`);
-  append(chat, 'command', `${cli} ${args.map(a => JSON.stringify(a)).join(' ')}\ncwd: ${project.path}`);
-  const child = spawn(cli, args, { cwd: project.path, env: { ...process.env, ...harnessRun?.env }, shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  append(chat, 'command', `${executable} ${args.map(a => JSON.stringify(a)).join(' ')}\ncwd: ${project.path}`);
+  const child = spawn(executable, args, { cwd: project.path, env: { ...process.env, ...harnessRun?.env }, shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   jobs.set(chat.id, child); publish();
   let buffer = '', resultError = false, spawnError = '';
   function line(text) {
@@ -74,6 +82,10 @@ function run(chat, prompt) {
     append(chat, 'stdout', text);
     try {
       const e = JSON.parse(text);
+      if (backend === 'codex') {
+        if (applyCodexEvent(e, chat, reply)) resultError = true;
+        publish(); return;
+      }
       if (e.session_id) chat.sessionId = e.session_id;
       if (e.type === 'system' && e.model) reply.actualModel = e.model;
       if (e.type === 'assistant') {
@@ -113,9 +125,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (route === '/api/state' && req.method === 'GET') return json(db);
     if (route === '/api/cli' && req.method === 'GET') {
+      const backend = url.searchParams.get('backend') || db.settings.backend;
+      if (!['cursor', 'codex'].includes(backend)) fail('CLI 后端无效');
+      if (backend === 'codex') {
+        const status = await capture(['login', 'status'], codexExecutable);
+        const { models, source } = codexModels();
+        return json({ backend, executable: codexExecutable, authenticated: status.code === 0, status: status.output, models, modelsOutput: source });
+      }
       const [status, models] = await Promise.all([capture(['status']), capture(['--list-models'])]);
       const list = models.code === 0 ? models.output.split('\n').map(l => l.trim().replace(/^[*•]\s*/, '')).map(l => l.match(/^([a-z0-9][a-z0-9._:[\],=-]*)\s+(?:-\s*|\t)(.+)$/i)).filter(Boolean).map(m => ({ id: m[1], name: m[2] })) : [];
-      return json({ executable: cli, authenticated: status.code === 0, status: status.output, models: list, modelsOutput: models.output });
+      return json({ backend, executable: cli, authenticated: status.code === 0, status: status.output, models: list, modelsOutput: models.output });
     }
     if (req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) fail('JSON required', 415);
@@ -134,7 +153,7 @@ const server = http.createServer(async (req, res) => {
         db.projects.push(project); publish(); return json(project);
       }
       if (route === '/api/settings') {
-        if (body.backend !== 'cursor') fail('Codex 后端尚未开放，请选择 Cursor');
+        if (!['cursor', 'codex'].includes(body.backend)) fail('CLI 后端无效');
         if (typeof body.model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:[\],= -]{0,150}$/.test(body.model)) fail('模型标识无效');
         if (!['agent', 'ask', 'plan'].includes(body.mode)) fail('执行模式无效');
         const fontSize = body.fontSize ?? db.settings.fontSize;
@@ -160,13 +179,13 @@ const server = http.createServer(async (req, res) => {
           if (config.path) config.path = inspectConfiguredHarness(config, root).sourceRoot;
           return config;
         });
-        db.settings = { backend: 'cursor', model: body.model, mode: body.mode, force: body.force === true, fontSize, contentWidth, harnesses, userName: userName.trim() }; publish(); return json(db.settings);
+        db.settings = { backend: body.backend, model: body.model, mode: body.mode, force: body.force === true, fontSize, contentWidth, harnesses, userName: userName.trim() }; publish(); return json(db.settings);
       }
       if (route === '/api/chats') {
         if (!db.projects.some(p => p.id === body.projectId)) fail('请先选择项目');
         const harnessId = body.harnessId ?? 'none';
         const harness = harnessId !== 'none' ? publicHarness(inspectConfiguredHarness(harnessCatalog(db.settings).find(h => h.id === harnessId), root)) : undefined;
-        const chat = { id: randomUUID(), projectId: body.projectId, harnessId, harness, title: '新对话', messages: [], logs: [], status: 'idle', createdAt: new Date().toISOString() };
+        const chat = { id: randomUUID(), projectId: body.projectId, backend: db.settings.backend, harnessId, harness, title: '新对话', messages: [], logs: [], status: 'idle', createdAt: new Date().toISOString() };
         db.chats.unshift(chat); publish(); return json(chat);
       }
       const deletion = route.match(/^\/api\/(projects|chats)\/([^/]+)\/delete$/);

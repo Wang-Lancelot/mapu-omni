@@ -6,6 +6,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { inspectHarness, inspectConfiguredHarness, prepareHarness, harnessCatalog, migrateHarnessSettings } from '../harness.mjs';
+import { codexArgs } from '../codex.mjs';
 import { createHarnessFixture } from './harness-fixture.mjs';
 
 function createCudaFixture(source) {
@@ -308,4 +309,28 @@ test('MicroCode snapshots native skills and version while isolating results and 
  assert.throws(()=>inspectConfiguredHarness(config,folder),/版本不一致/);
  writeFileSync(path.join(source,'version.json'),'invalid');
  assert.throws(()=>inspectConfiguredHarness(config,folder),/版本清单无效/);
+});
+
+test('Codex Harness uses original resources and keeps snapshots outside writable roots',t=>{
+ const folder=realpathSync(mkdtempSync(path.join(os.tmpdir(),'mapu-codex-harness-')));
+ t.after(()=>rmSync(folder,{recursive:true,force:true}));
+ const dataDir=path.join(folder,'data'), project={id:'p',path:folder},chat={id:'c'};
+ const scale=inspectHarness(createHarnessFixture(path.join(folder,'scale')),folder);
+ const info={...scale,type:'scale'};
+ const run=prepareHarness({info,dataDir,project,chat,backend:'codex'});
+ assert.equal(run.snapshot.backend,'codex');assert.deepEqual(run.args,[]);
+ assert.match(run.instructions,/scale-agent\/skills\/workflow\/scale-write/);
+ assert.match(run.instructions,/scale-agent\/agents\/scale-mpu-review.md/);
+ assert.doesNotMatch(run.instructions,/Cursor 原生子代理|已通过 --plugin-dir/);
+ assert.deepEqual(run.writableRoots,[run.snapshot.memoryRoot]);
+ assert.ok(!run.writableRoots.includes(run.snapshot.pluginDir));
+ const entry=readFileSync(path.join(run.snapshot.pluginDir,'source/AGENTS.md'),'utf8');
+ assert.match(entry,/collaboration.spawn_agent/);
+ const args=codexArgs({model:'auto',mode:'agent',force:true,prompt:'test',harnessRun:run});
+ assert.ok(!args.includes('--plugin-dir'));assert.ok(args.includes(`developer_instructions=${JSON.stringify(run.instructions)}`));
+ const micro=inspectConfiguredHarness({id:'mc',name:'MicroCode',type:'microcode',path:createMicrocodeFixture(path.join(folder,'micro'))},folder);
+ const mc=prepareHarness({info:micro,dataDir,project,chat,backend:'codex'});
+ assert.equal(mc.env.HPP_RESULTS_ROOT,mc.snapshot.resultsRoot);
+ assert.match(mc.instructions,/HPP_RESULTS_ROOT/);assert.match(mc.instructions,/skills\/hpp-routing/);
+ assert.deepEqual(mc.writableRoots,[mc.snapshot.memoryRoot]);
 });

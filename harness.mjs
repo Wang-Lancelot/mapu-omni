@@ -125,7 +125,24 @@ function absoluteLinks(text, originalDir) {
     return `](<${path.resolve(originalDir, target)}${anchor}>)`;
   });
 }
-export function prepareHarness({ info, dataDir, project, chat }) {
+export function prepareHarness({ info, dataDir, project, chat, backend = 'cursor' }) {
+  const prepared = prepareCursorHarness({ info, dataDir, project, chat });
+  if (backend !== 'codex') return prepared;
+  const source = path.join(prepared.snapshot.pluginDir, 'source');
+  const scale = !['generic', 'forge', 'cuda', 'microcode'].includes(info.type);
+  const skills = scale ? skillPaths.map(p => `scale-agent/skills/${p}`) : info.skills;
+  const agents = scale ? agentNames.map(n => `scale-agent/agents/${n}.md`) : info.agents;
+  const instructions = prepared.promptPrefix
+    .replace('/ Cursor 运行适配', '/ Codex 运行适配')
+    .replace(/宿主工具适配：[^\n]+/, '宿主工具适配：使用本次 Codex CLI 实际提供的工具。需要独立审核时先读取相应角色文件；角色文件不代表已注册的原生子代理，工具不可用时如实报告未执行，不得以主代理自检代替独立审核。')
+    .replace(/已通过 --plugin-dir[^\n]+/, '通过下方资源索引按需读取 Skills 与角色文件；不将 Cursor 插件配置传给 Codex。')
+    .replace('[用户本轮请求]', '') +
+    `\n每轮必须读取 Harness 入口：${path.join(source, 'AGENTS.md')}\nSkills：${JSON.stringify(skills)}\n角色：${JSON.stringify(agents)}\n以上资源路径相对于快照 ${source}。按需读取技能与角色正文及其引用，不能声称已自动注册这些角色或执行了审核。\n`;
+  return { ...prepared, snapshot: { ...prepared.snapshot, backend }, args: [], instructions,
+    writableRoots: [prepared.snapshot.memoryRoot].filter(Boolean),
+    promptPrefix: `[MaPU Omni / Codex Harness：${info.name}]\n先读取 ${path.join(source, 'AGENTS.md')} 并遵循本次 developer instructions 中的路径适配。\n[用户本轮请求]\n` };
+}
+function prepareCursorHarness({ info, dataDir, project, chat }) {
   if (['generic', 'forge', 'cuda', 'microcode'].includes(info.type)) return prepareGenericHarness({ info, dataDir, project, chat });
   const memoryRoot = path.join(dataDir, 'harness-memory', project.id);
   const memoryProject = path.join(memoryRoot, 'projects', project.id);

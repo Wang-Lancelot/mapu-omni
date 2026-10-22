@@ -2,18 +2,18 @@
 
 当前版本：**v0.1.0**。版本变更见 [CHANGELOG.md](CHANGELOG.md)。
 
-面向 MaPU Scale 编程的本地网页版 Agent 工作空间，中文名「码炉」。通过专用 Harness 承载代码转码、代码优化和微码改写等工作流。浏览器提交 prompt，Node.js 后端在所选项目目录启动真实 Cursor CLI 子进程，实时展示回复及终端日志。
+面向 MaPU Scale 编程的本地网页版 Agent 工作空间，中文名「码炉」。通过专用 Harness 承载代码转码、代码优化和微码改写等工作流。浏览器提交 prompt，Node.js 后端在所选项目目录启动真实 Cursor CLI 或 Codex CLI 子进程，实时展示回复及终端日志。
 
 ## 启动
 
-需要 Node.js 22+ 和官方 Cursor CLI。无需安装 npm 依赖。
+需要 Node.js 22+，以及已登录的官方 Cursor CLI 或 Codex CLI。无需安装 npm 依赖。
 
 ```sh
 agent login
 npm start
 ```
 
-打开 http://127.0.0.1:4317 。已登录 Cursor 的机器可直接使用。登录状态和可用模型可在设置里刷新；此应用不保存 API Key。
+打开 http://127.0.0.1:4317 。已登录对应 CLI 的机器可直接使用。Codex 用户在终端运行 `codex login`，并在设置 → 模型与连接中选择 Codex CLI。登录状态和可用模型可在设置里刷新；此应用不保存 API Key。
 
 ## 使用
 
@@ -24,11 +24,12 @@ npm start
 - 设置中可调整界面字体大小（12–20 px），保存后立即应用，重启后保留。
 - 回复默认以 Markdown 预览显示，支持标题、列表、表格、引用、链接和代码块。设置 → 通用中可选择对话内容宽度（740 / 960 / 1200 / 1440 px 或填满可用宽度），默认 960 px，回复与输入框一起调整，刷新和重启后保留。
 - 输入 prompt，Enter 发送，Shift+Enter 换行；点击停止按钮终止任务。
-- 设置中选择 Cursor 后端、模型和执行模式。Codex 为预留选项，当前禁用。
-- 模型列表来自 `agent --list-models`。也可填写账号支持的自定义模型 ID。保存后，下一条消息通过真实 `--model <id>` 使用该模型；已在运行的任务保持原模型。实际模型由 CLI 初始化事件返回并显示在回复上。
+- 设置中选择 Cursor CLI 或 Codex CLI、模型和执行模式。对话绑定创建时的后端，切换后端后新建对话；旧对话可切回原后端继续。
+- Cursor 模型列表来自 `agent --list-models`；Codex 模型列表读取本机 `$CODEX_HOME/models_cache.json`（默认 `~/.codex/models_cache.json`），可能滞后。Codex 的 Auto 不传模型参数，使用 CLI 当前默认配置。也可填写账号支持的自定义模型 ID。保存后，下一条消息通过真实 `--model <id>` 使用该模型；已在运行的任务保持原模型。CLI 返回实际模型时显示在回复上；未返回时仅显示请求模型或 Auto。
 - 应用对你选择的工作目录传入 `--trust`，仅适用于当前执行。Agent 可执行任务；Ask / Plan 为只读模式。自动允许工具执行默认关闭，可在设置显式打开 `--force`；关闭时，CLI 权限行为以本机 Cursor 配置为准，非交互执行无法响应交互式审批，需要调整 Cursor 配置或开启该选项。
+- Codex 使用 `exec --json` 执行并保存 thread ID。Ask / Plan 始终使用 `read-only` 沙箱；Agent 默认也为只读，开启「自动允许工具执行」后使用 `workspace-write`。非交互运行不弹出审批，沙箱外操作直接失败，不启用绕过沙箱的参数。
 - 顶部「终端」显示真实命令、stdout、stderr、工具事件及退出状态，是进程日志面板，不是任意 shell 输入框。
-- 多段对话使用 Cursor `--resume <session_id>` 维持上下文。运行中可切换项目、创建其他对话，任务继续执行。
+- 多段对话分别使用 Cursor `--resume <session_id>` 或 Codex `exec resume <thread_id>` 维持上下文。运行中可切换项目、创建其他对话，任务继续执行。
 - 项目、对话、设置保存在 `.data/workspace.json`，已被 Git 忽略。服务器重启后，先前运行的任务显示为中断。
 
 ## 配置与验证
@@ -36,16 +37,21 @@ npm start
 ```sh
 PORT=4318 npm start
 CURSOR_CLI=/absolute/path/to/agent npm start
+CODEX_CLI=/absolute/path/to/codex npm start
 npm test
 ```
 
-测试使用独立临时目录和 CLI 测试替身，覆盖项目路径校验、真实子进程传参、模型与会话恢复、取消任务、持久化及跨站请求防护，不消耗模型额度。与 Cursor 服务的端到端执行需要有效登录和网络。
+测试使用独立临时目录和 CLI 测试替身，覆盖项目路径校验、真实子进程传参、模型与会话恢复、取消任务、持久化及跨站请求防护，不消耗模型额度。与 CLI 服务的端到端执行需要有效登录和网络。
 
 应用仅监听 `127.0.0.1`，校验 Host/Origin，不开放跨域访问；prompt 作为参数直接传入子进程，不拼接 shell。这个架构需要本地文件系统和进程能力，不能直接部署到不支持子进程的静态网站或 Cloudflare Workers。
 
 官方 CLI 参考：https://cursor.com/docs/cli/overview
 
+Codex 接入遵循 [OpenAI Docs 非交互模式](https://learn.chatgpt.com/docs/non-interactive-mode)。
+
 ## 自定义 Harness
+
+Codex 复用现有 Harness 资源快照、项目记忆及运行环境，通过本次调用的 developer instructions 和资源索引按需读取 AGENTS.md、Skills 与角色正文；不将 Cursor 插件参数传给 Codex，也不将角色文件视为已注册的原生子代理。下文关于 Cursor 插件注册与工具映射的说明适用于 Cursor 后端。
 
 在「设置 → Harness」点击「＋ 添加 Harness」，填写名称、类型和本地目录，再点击「保存设置」。支持任意数量；配置随设置保存，刷新或重启后保留。未填写目录的条目可保存，但不能用于新对话。取消或关闭设置会放弃本次修改。
 
@@ -78,4 +84,4 @@ Markdown 预览使用本地随附的 Marked 18.1.1 与 DOMPurify 3.4.17（`publi
 
 本项目采用 [MIT License](LICENSE)，允许商用、修改、分发和闭源使用，使用或分发时需保留版权声明及许可证文本。
 
-随附的 Marked、DOMPurify 和 Lucide 图标遵循各自许可证，分别见 `public/vendor/marked.LICENSE`、`public/vendor/purify.LICENSE` 和 `public/icons/LUCIDE-LICENSE`。外部 Cursor CLI 和用户配置的 Harness 遵循各自的许可与服务条款。
+随附的 Marked、DOMPurify 和 Lucide 图标遵循各自许可证，分别见 `public/vendor/marked.LICENSE`、`public/vendor/purify.LICENSE` 和 `public/icons/LUCIDE-LICENSE`。外部 Cursor CLI、Codex CLI 和用户配置的 Harness 遵循各自的许可与服务条款。

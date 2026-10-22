@@ -34,7 +34,7 @@ test('deleting from either sidebar list updates both and ignores older snapshots
       const id = route.split('/')[3];
       snapshot = {...snapshot, revision:snapshot.revision + 1, chats:snapshot.chats.filter(c => c.id !== id)};
     }
-    const body = route === '/api/cli' ? {authenticated:true,models:[],executable:'test',status:'ok',modelsOutput:''} : structuredClone(snapshot);
+    const body = route.startsWith('/api/cli') ? {authenticated:true,models:[],executable:'test',status:'ok',modelsOutput:''} : structuredClone(snapshot);
     return {ok:true,json:async () => body};
   };
   let stream;

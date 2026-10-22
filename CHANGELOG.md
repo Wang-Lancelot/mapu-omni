@@ -17,3 +17,10 @@ MaPU Omni（码炉）首个版本，提供面向 MaPU Scale 编程的本地网�
 
 - 需要 Node.js 22+ 和已登录的 Cursor CLI；无需安装 npm 依赖，运行 `npm start` 后访问 `http://127.0.0.1:4317`。
 - `npm test` 的 9 项测试通过，覆盖 CLI 执行、会话与设置持久化、权限校验及 Harness 隔离；Markdown 预览与宽度保存已完成浏览器验证。
+
+## 未发布
+
+- 新增 Codex CLI 后端，支持登录检测、本机模型缓存、模型选择、JSON 事件、会话恢复和取消任务。
+- 对话绑定各自后端，避免把 Cursor 会话 ID 交给 Codex；既有 Cursor 对话继续可用。
+- Codex Harness 复用资源快照与隔离的记忆/结果目录，使用 developer instructions 加载路径适配。
+- Codex Ask / Plan 只读；Agent 开启自动工具执行后使用 workspace-write 沙箱。
